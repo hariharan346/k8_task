@@ -107,12 +107,30 @@ affinity:
 | Backend    | ❌        | —       | ✅        |
 | Database   | ❌        | ❌       | —        |
 
-### Kyverno Policies
+### Kyverno — Policy Enforcement
 
-| Policy                        | Effect                                    |
-|-------------------------------|-------------------------------------------|
-| `disallow-privileged-containers`| Blocks `privileged: true` containers    |
-| `disallow-latest-tag`        | Blocks images with `:latest` or no tag     |
+**What is Kyverno?**
+Kyverno is a Kubernetes-native policy engine that validates, mutates, and generates resources using YAML-based policies. Unlike OPA/Gatekeeper, Kyverno doesn't require learning a separate policy language (Rego) — policies are written as standard Kubernetes resources (`ClusterPolicy`).
+
+**How it works in this project:**
+Kyverno is installed via Helm into its own namespace (`kyverno`). It registers an admission webhook that intercepts ALL resource creation/update requests. Before any Pod is admitted into the cluster, Kyverno checks it against our `ClusterPolicy` rules:
+
+1. **`disallow-privileged-containers`** — Uses a `validate.pattern` rule to ensure no container sets `securityContext.privileged: true`. If a user tries to create a privileged pod, the admission webhook rejects it immediately with a clear error message.
+
+2. **`disallow-latest-tag`** — Two sub-rules:
+   - `require-image-tag`: Validates that every container image contains a `:tag` using the pattern `*:*`
+   - `deny-latest-tag`: Uses a `foreach` loop over all containers to explicitly deny any image ending in `:latest`
+
+**Why Kyverno over OPA/Gatekeeper?**
+- YAML-native — no Rego language to learn
+- Simpler to write, read, and maintain
+- Built-in library of community policies
+- Supports validate, mutate, and generate actions
+
+| Policy                        | Mode    | Effect                                    |
+|-------------------------------|---------|-------------------------------------------|
+| `disallow-privileged-containers`| Enforce | Blocks `privileged: true` containers    |
+| `disallow-latest-tag`        | Enforce | Blocks images with `:latest` or no tag     |
 
 ---
 
@@ -133,7 +151,7 @@ During voluntary disruptions (e.g., `kubectl drain`), the PDB ensures at least 1
 
 ```
 k3d-3tier/
-├── cluster-setup.sh            # Main setup script
+├── cluster-setup.sh            # Main setup script (idempotent)
 ├── namespaces.yaml             # Namespace definition
 ├── frontend/
 │   ├── deployment.yaml         # Nginx frontend (2 replicas)
@@ -149,8 +167,11 @@ k3d-3tier/
 ├── pdb/
 │   ├── frontend-pdb.yaml       # PDB for frontend
 │   └── backend-pdb.yaml        # PDB for backend
+├── security/
+│   └── trivy-scan.sh           # Trivy vulnerability scanner (bonus)
 ├── tests/
-│   └── test-commands.md        # All validation commands
+│   ├── test-commands.md        # Manual validation commands
+│   └── validate.sh             # Automated validation script
 └── README.md                   # This file
 ```
 
@@ -168,6 +189,7 @@ Install the following tools:
 | k3d      | `curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh \| bash` |
 | kubectl  | `curl -LO https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl && chmod +x kubectl && sudo mv kubectl /usr/local/bin/` |
 | Helm     | `curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 \| bash` |
+| Trivy *(optional)* | `curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \| sh` |
 
 ### Setup
 
@@ -195,9 +217,23 @@ The script will:
 
 ## 🧪 Testing Steps
 
-After setup completes, follow all tests in [`tests/test-commands.md`](tests/test-commands.md).
+After setup completes, you can run tests **automatically** or **manually**.
 
-### Quick Smoke Test
+### Automated Test Suite (Recommended)
+
+```bash
+chmod +x tests/validate.sh
+./tests/validate.sh
+```
+
+This script runs all validation checks and reports PASS/FAIL for each:
+- Pod scheduling on correct nodes
+- Network policy enforcement (allow/deny paths)
+- Kyverno policy enforcement (privileged, :latest)
+- PDB and resource limits verification
+- Node label verification
+
+### Quick Smoke Test (Manual)
 
 ```bash
 # Verify all pods are running on correct nodes
@@ -219,9 +255,18 @@ kubectl run test-priv --image=nginx:1.25.4 -n three-tier \
 kubectl run test-latest --image=nginx:latest -n three-tier
 ```
 
-### Full Test Suite
+### Full Manual Test Reference
 
 See [`tests/test-commands.md`](tests/test-commands.md) for the complete validation checklist with expected outputs.
+
+### 🔍 Trivy Vulnerability Scan (Bonus)
+
+```bash
+chmod +x security/trivy-scan.sh
+./security/trivy-scan.sh
+```
+
+Scans all application images (`nginx:1.25.4`, `python:3.12-slim`, `busybox:1.36`) for HIGH/CRITICAL vulnerabilities. Reports are saved to `security/reports/`.
 
 ---
 
@@ -236,7 +281,9 @@ k3d cluster delete three-tier
 ## 📝 Key Design Decisions
 
 1. **Canal CNI** — k3s ships with Canal (Flannel + Calico policy), providing NetworkPolicy support without additional CNI installation.
-2. **Kyverno over OPA/Gatekeeper** — Simpler YAML-native policies, no Rego language required.
+2. **Kyverno over OPA/Gatekeeper** — Simpler YAML-native policies, no Rego language required. Policies are written as Kubernetes resources, not Rego.
 3. **Preferred anti-affinity** — Uses `preferredDuringSchedulingIgnoredDuringExecution` instead of `required` because each tier has only 1 node; anti-affinity is ready to spread across multiple nodes if scaled.
 4. **DNS egress policy** — Explicitly allows DNS traffic so pods can resolve service names despite the default-deny policy.
 5. **Specific image tags** — All containers use pinned versions (`nginx:1.25.4`, `python:3.12-slim`, `busybox:1.36`) for reproducibility.
+6. **Default-deny-all first** — The zero-trust network model starts by blocking everything, then explicitly whitelisting only the required paths (frontend→backend, backend→db).
+7. **Resource limits on all pods** — Prevents noisy-neighbor issues and ensures the scheduler can make informed placement decisions.

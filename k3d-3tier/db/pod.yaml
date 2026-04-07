@@ -13,7 +13,7 @@ spec:
   containers:
     - name: db
       image: busybox:1.36
-      command: ["sh", "-c", "nc -lk -p 3306 -e echo 'DB OK' & sleep 3600"]
+      command: ["sh", "-c", "while true; do echo -e 'HTTP/1.1 200 OK\r\n\r\nDB OK' | nc -l -p 3306; done & sleep infinity"]
       ports:
         - containerPort: 3306
       resources:

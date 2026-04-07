@@ -35,7 +35,7 @@ spec:
 
 ---
 
-# Policy 2: Disallow :latest Tag
+# Policy 2: Require Image Tag (no tagless images)
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
@@ -45,7 +45,8 @@ metadata:
     policies.kyverno.io/category: Best Practices
     policies.kyverno.io/severity: medium
     policies.kyverno.io/description: >-
-      Images must use a specific tag. Using ':latest' or no tag is not allowed.
+      Images must use a specific version tag. Using ':latest' or omitting a tag
+      is not allowed. This ensures reproducible deployments.
 spec:
   validationFailureAction: Enforce
   background: true
@@ -68,12 +69,20 @@ spec:
           - resources:
               kinds:
                 - Pod
+      preconditions:
+        all:
+          - key: "{{ request.operation || 'BACKGROUND' }}"
+            operator: AnyIn
+            value:
+              - CREATE
+              - UPDATE
       validate:
         message: "Using ':latest' tag is not allowed."
-        deny:
-          conditions:
-            any:
-              - key: "{{ request.object.spec.containers[].image }}"
-                operator: AnyIn
-                value:
-                  - "*:latest"
+        foreach:
+          - list: "request.object.spec.containers"
+            deny:
+              conditions:
+                any:
+                  - key: "{{ element.image }}"
+                    operator: Equals
+                    value: "*:latest"

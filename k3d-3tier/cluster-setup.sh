@@ -158,7 +158,20 @@ kubectl wait --for=condition=Ready pod -l app=db -n "$NAMESPACE" --timeout=120s
 ok "All workloads are ready."
 
 #---------------------------------------------------------------
-# 10. Summary
+# 10. (BONUS) Trivy Image Scan
+#---------------------------------------------------------------
+if command -v trivy &>/dev/null; then
+  info "Trivy detected — running image vulnerability scans..."
+  chmod +x "$SCRIPT_DIR/security/trivy-scan.sh"
+  "$SCRIPT_DIR/security/trivy-scan.sh" || true
+  ok "Trivy scans complete. Reports saved in security/reports/."
+else
+  warn "Trivy not installed — skipping vulnerability scan (optional)."
+  info "To install: curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh"
+fi
+
+#---------------------------------------------------------------
+# 11. Summary
 #---------------------------------------------------------------
 echo ""
 echo "============================================================"
@@ -177,5 +190,9 @@ echo ""
 info "Pod placement:"
 kubectl get pods -n "$NAMESPACE" -o wide
 echo ""
-info "Next steps: Run the tests in tests/test-commands.md to validate."
+info "Next steps:"
+info "  1. Run automated tests:  chmod +x tests/validate.sh && ./tests/validate.sh"
+info "  2. Manual test commands: tests/test-commands.md"
+info "  3. Trivy scan (bonus):   chmod +x security/trivy-scan.sh && ./security/trivy-scan.sh"
 echo "============================================================"
+
