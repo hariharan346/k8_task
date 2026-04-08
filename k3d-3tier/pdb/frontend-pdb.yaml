@@ -8,3 +8,9 @@ spec:
   selector:
     matchLabels:
       app: frontend
+
+
+# You have: 2 frontend pods
+# PDB says: minAvailable = 1
+# So: allowed disruptions = 2 - 1 = 1
+# Kubernetes can evict: 1 pod at a time (not both!)

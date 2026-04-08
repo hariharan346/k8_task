@@ -19,6 +19,8 @@ spec:
 
 # 2. Allow DNS egress for all pods (kube-dns in kube-system)
 #    Without this, pods cannot resolve service names.
+
+#like dns system
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -32,9 +34,9 @@ spec:
     - to:
         - namespaceSelector: {}   # any namespace (kube-system)
       ports:
-        - protocol: UDP
+        - protocol: UDP #for small requests
           port: 53
-        - protocol: TCP
+        - protocol: TCP #for large requests 
           port: 53
 
 ---

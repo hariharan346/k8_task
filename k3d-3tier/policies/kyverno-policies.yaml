@@ -17,7 +17,7 @@ metadata:
       Privileged mode disables most security mechanisms and should not be allowed.
 spec:
   validationFailureAction: Enforce
-  background: true
+  background: true  #check already running block of pods 
   rules:
     - name: deny-privileged
       match:
@@ -71,7 +71,7 @@ spec:
                 - Pod
       preconditions:
         all:
-          - key: "{{ request.operation || 'BACKGROUND' }}"
+          - key: "{{ request.operation || 'BACKGROUND' }}" #when new or update the pods
             operator: AnyIn
             value:
               - CREATE

@@ -58,6 +58,7 @@ info "Creating k3d cluster '$CLUSTER_NAME' with 1 server + 3 agents..."
 k3d cluster create "$CLUSTER_NAME" \
   --servers 1 \
   --agents 3 \
+  --api-port 127.0.0.1:6550 \
   --k3s-arg "--disable=traefik@server:*" \
   --wait
 
