@@ -1,0 +1,19 @@
+deschedulerPolicy:
+  strategies:
+    RemoveDuplicates:
+      enabled: false
+    RemovePodsViolatingNodeAffinity:
+      enabled: true
+      params:
+        nodeAffinityType:
+          - "requiredDuringSchedulingIgnoredDuringExecution"
+    RemovePodsViolatingTopologySpreadConstraint:
+      enabled: true
+      params:
+        includeSoftConstraints: true
+    HighNodeUtilization:
+      enabled: false
+    LowNodeUtilization:
+      enabled: false
+
+schedule: "*/1 * * * *"
