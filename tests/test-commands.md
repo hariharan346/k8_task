@@ -24,14 +24,17 @@ kubectl get nodes --show-labels | grep pool
 Verify that the weighted Node Affinity and Topology Spread constraints are distributing the load correctly.
 
 ```bash
-# List pods with their hosting nodes
-kubectl get pods -n three-tier -o wide
+# List pods with their hosting nodes and pool labels
+kubectl get pods -n three-tier -o wide --show-labels | grep -E "frontend|backend"
 ```
 
 **What to explain:**
-- You have **6 frontend replicas** and **2 backend replicas**.
-- Because of the `70/30` weighting, you should see the majority of pods on the `spot` nodes (`agent-1` and `agent-2`).
-- The `topologySpreadConstraints` ensure that pods aren't just clumped on one node, but spread across the whole pool.
+- You have **6 frontend replicas** and **4 backend replicas**.
+- Based on the **70/30 distribution** strategy:
+  - **Frontend (6 pods)**: Should result in **4 pods on spot** (2 per node) and **2 pods on reserved**.
+  - **Backend (4 pods)**: Should result in **3 pods on spot** and **1 pod on reserved**.
+- The `topologySpreadConstraints` (hostname) ensures that pods are spread evenly across all agents, preventing any single node from being overloaded.
+- If you drain a spot node, these pods will automatically migrate to the `reserved` pool to maintain availability.
 
 ---
 
@@ -98,7 +101,50 @@ kubectl drain "$NODE_TO_DRAIN" --ignore-daemonsets --delete-emptydir-data --forc
 
 ---
 
-## 6. Cleanup
+---
+
+## 7. The Spot Node Challenge (Interview Demo)
+
+Use these commands to perform the exact "chaos demo" requested by the reviewer: *What happens if you remove the 'spot' nodes and then create a new pod?*
+
+### 7a. Simulate "Spot Termination" (Shut Down Node)
+```bash
+# Identify and stop a spot node using k3d
+NODE_NAME=$(kubectl get nodes -l pool=spot -o jsonpath='{.items[0].metadata.name}')
+echo "Stopping spot node: $NODE_NAME"
+
+k3d node stop "$NODE_NAME"
+```
+
+### 7b. Observe "Resilience Fallback"
+Watch how the **Hard Affinity** and **PDB** work together to keep the app online on the `reserved` pool.
+```bash
+# Watch pods move to the reserved node (agent-0)
+kubectl get pods -n three-tier -o wide -w
+```
+**Explain**: "The required node affinity ensures pods only land on authorized nodes. When spot nodes are gone, the reserved pool picks up the slack automatically."
+
+### 7c. Scale Up While Spot is Down
+```bash
+# Force a new pod creation by scaling up
+kubectl scale deployment/frontend -n three-tier --replicas=7
+```
+**Explain**: "Because of our hard fallback logic, New pods correctly schedule on the 'reserved' pool even though their 'preferred' spot pool is missing."
+
+### 7d. Restore Spot & Watch Rebalancing
+```bash
+# Start the node back up
+k3d node start "$NODE_NAME"
+
+# Wait ~1 minute for the Descheduler to trigger
+# Watch pods move FROM reserved node TO the new spot node
+kubectl get pods -n three-tier -o wide -w
+```
+**Explain**: "Once capacity returns, the Kubernetes Descheduler detects the topology skew and evicts pods from the reserved node to restore our desired 70/30 distribution."
+
+---
+
+## 8. Cleanup
 
 To destroy the cluster and clean up all Docker resources:
 ```bash

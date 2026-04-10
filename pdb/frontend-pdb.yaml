@@ -4,14 +4,14 @@ metadata:
   name: frontend-pdb
   namespace: three-tier
 spec:
-  minAvailable: 2
+  maxUnavailable: 1
   selector:
     matchLabels:
       app: frontend
 
 
 # You have: 6 frontend pods
-# PDB says: minAvailable = 2
-# So: allowed disruptions = 6 - 2 = 4
-# Kubernetes can evict: Up to 4 pods at a time
-# Availability is guaranteed even during major node drains.
+# PDB says: maxUnavailable = 1
+# So: Kubernetes will ensure at most 1 pod is unavailable at a time.
+# This ensures 5 pods are always Running during a node drain.
+# This shows stricter control than minAvailable.

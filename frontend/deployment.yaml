@@ -20,6 +20,20 @@ spec:
       # Schedule based on node weights and spread constraints
       affinity:
         nodeAffinity:
+          # Hard requirement: Pods MUST land on frontend-tier nodes in the spot/reserved pools
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: tier
+                    operator: In
+                    values:
+                      - frontend
+                  - key: pool
+                    operator: In
+                    values:
+                      - spot
+                      - reserved
+          # Soft preference: Target 70% spot / 30% reserved distribution
           preferredDuringSchedulingIgnoredDuringExecution:
             - weight: 70
               preference:
@@ -48,7 +62,7 @@ spec:
                 topologyKey: kubernetes.io/hostname
       topologySpreadConstraints:
         - maxSkew: 1
-          topologyKey: pool
+          topologyKey: kubernetes.io/hostname
           whenUnsatisfiable: ScheduleAnyway
           labelSelector:
             matchLabels:

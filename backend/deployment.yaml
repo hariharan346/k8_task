@@ -7,7 +7,7 @@ metadata:
     app: backend
     tier: backend
 spec:
-  replicas: 2
+  replicas: 4
   selector:
     matchLabels:
       app: backend
@@ -16,10 +16,38 @@ spec:
       labels:
         app: backend
         tier: backend
-    spec:
-
-      # Spread replicas across nodes (best-effort)
+      # Schedule based on node weights and spread constraints
       affinity:
+        nodeAffinity:
+          # Hard requirement: Pods MUST land on backend-tier nodes in the spot/reserved pools
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: tier
+                    operator: In
+                    values:
+                      - backend
+                  - key: pool
+                    operator: In
+                    values:
+                      - spot
+                      - reserved
+          # Soft preference: Target 70% spot / 30% reserved distribution
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 70
+              preference:
+                matchExpressions:
+                  - key: pool
+                    operator: In
+                    values:
+                      - spot
+            - weight: 30
+              preference:
+                matchExpressions:
+                  - key: pool
+                    operator: In
+                    values:
+                      - reserved
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
             - weight: 100
@@ -31,6 +59,13 @@ spec:
                       values:
                         - backend
                 topologyKey: kubernetes.io/hostname
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: backend
       containers:
         - name: api
           image: python:3.12-slim
