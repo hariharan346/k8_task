@@ -16,6 +16,7 @@ spec:
       labels:
         app: backend
         tier: backend
+    spec:
       # Schedule based on node weights and spread constraints
       affinity:
         nodeAffinity:
