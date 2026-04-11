@@ -48,12 +48,54 @@ wait_for_api_server() {
 }
 
 #---------------------------------------------------------------
+# Function: wait_for_deployment
+#---------------------------------------------------------------
+wait_for_deployment() {
+  local namespace=$1
+  local deploy_name=$2
+  local max_retries=${3:-3}
+  local timeout=${4:-120}
+  local attempt=1
+
+  while [ $attempt -le $max_retries ]; do
+    info "Waiting for deployment '$deploy_name' (Attempt $attempt/$max_retries, timeout ${timeout}s)..."
+    if kubectl rollout status "deployment/$deploy_name" -n "$namespace" --timeout="${timeout}s"; then
+      ok "Deployment '$deploy_name' is ready."
+      return 0
+    else
+      warn "Deployment '$deploy_name' failed to become ready on attempt $attempt."
+      
+      # Debug output
+      echo "------------------------------------------------------------"
+      info "DEBUG INFO for '$deploy_name' in namespace '$namespace':"
+      kubectl get pods -n "$namespace" -l app="$deploy_name" -o wide || true
+      echo ""
+      info "Recent events for '$deploy_name':"
+      kubectl get events -n "$namespace" --sort-by='.lastTimestamp' | tail -n 10 || true
+      echo ""
+      info "Deployment description (partial):"
+      kubectl describe deployment "$deploy_name" -n "$namespace" | head -n 30 || true
+      echo "------------------------------------------------------------"
+      
+      attempt=$((attempt + 1))
+      if [ $attempt -le $max_retries ]; then
+        warn "Retrying in 10 seconds..."
+        sleep 10
+      fi
+    fi
+  done
+
+  fail "Deployment '$deploy_name' failed to stabilize after $max_retries attempts."
+  exit 1
+}
+
+#---------------------------------------------------------------
 # Function: wait_for_pods_ready
 #---------------------------------------------------------------
 wait_for_pods_ready() {
   local namespace=$1
   local timeout=${2:-300}
-  local interval=2
+  local interval=5
   local elapsed=0
 
   info "Validating readiness for all pods in namespace '$namespace'..."
@@ -63,7 +105,6 @@ wait_for_pods_ready() {
     pod_info=$(kubectl get pods -n "$namespace" --no-headers 2>/dev/null || echo "")
 
     if [ -z "$pod_info" ]; then
-      # Wait for pods to appear
       sleep $interval
       elapsed=$((elapsed + interval))
       continue
@@ -101,7 +142,13 @@ wait_for_pods_ready() {
   done
 
   fail "Timeout (${timeout}s) waiting for pods in '$namespace'."
-  kubectl get pods -n "$namespace" || true
+  echo "------------------------------------------------------------"
+  info "DEBUG: Final pod status in '$namespace':"
+  kubectl get pods -n "$namespace" -o wide || true
+  echo ""
+  info "DEBUG: Recent namespace events:"
+  kubectl get events -n "$namespace" --sort-by='.lastTimestamp' | tail -n 15 || true
+  echo "------------------------------------------------------------"
   exit 1
 }
 
@@ -148,19 +195,17 @@ ok "Docker daemon is running."
 #---------------------------------------------------------------
 info "Checking if cluster '$CLUSTER_NAME' already exists..."
 if k3d cluster list | grep -q "$CLUSTER_NAME"; then
-  warn "Cluster '$CLUSTER_NAME' already exists. Deleting it first..."
-  k3d cluster delete "$CLUSTER_NAME"
+  ok "Cluster '$CLUSTER_NAME' already exists. Skipping creation and proceeding with setup..."
+else
+  info "Creating k3d cluster '$CLUSTER_NAME' with 1 server + 3 agents..."
+  k3d cluster create "$CLUSTER_NAME" \
+    --servers 1 \
+    --agents 3 \
+    --api-port 127.0.0.1:6551 \
+    --k3s-arg "--disable=traefik@server:*" \
+    --wait
+  ok "Cluster '$CLUSTER_NAME' created successfully."
 fi
-
-info "Creating k3d cluster '$CLUSTER_NAME' with 1 server + 3 agents..."
-k3d cluster create "$CLUSTER_NAME" \
-  --servers 1 \
-  --agents 3 \
-  --api-port 127.0.0.1:6551 \
-  --k3s-arg "--disable=traefik@server:*" \
-  --wait
-
-ok "Cluster '$CLUSTER_NAME' created successfully."
 
 #---------------------------------------------------------------
 # 3. Node Labeling
@@ -177,9 +222,9 @@ if [ "${#AGENT_NODES[@]}" -lt 3 ]; then
   exit 1
 fi
 
-kubectl label node "${AGENT_NODES[0]}" pool=reserved tier=frontend tier=backend tier=db --overwrite
-kubectl label node "${AGENT_NODES[1]}" pool=spot     tier=frontend tier=backend        --overwrite
-kubectl label node "${AGENT_NODES[2]}" pool=spot     tier=frontend tier=backend        --overwrite
+kubectl label node "${AGENT_NODES[0]}" pool=reserved tier=db       --overwrite
+kubectl label node "${AGENT_NODES[1]}" pool=spot     tier=backend  --overwrite
+kubectl label node "${AGENT_NODES[2]}" pool=spot     tier=frontend --overwrite
 
 ok "Node labels applied:"
 kubectl get nodes --show-labels | grep -E "NAME|agent"
@@ -232,7 +277,28 @@ kubectl apply -f "$SCRIPT_DIR/policies/network-policy.yaml"
 ok "Network policies applied."
 
 #---------------------------------------------------------------
-# 8. Install Kyverno + Policies
+# 8. Pre-pull Kyverno Images (Optimization)
+#---------------------------------------------------------------
+info "Pre-pulling Kyverno images for faster startup..."
+KYVERNO_REGISTRY="ghcr.io"
+KYVERNO_VERSION="v1.17.1"
+KYVERNO_IMAGES=(
+  "kyverno/kyverno"
+  "kyverno/kyvernopre"
+  "kyverno/background-controller"
+  "kyverno/cleanup-controller"
+  "kyverno/reports-controller"
+)
+
+for img_repo in "${KYVERNO_IMAGES[@]}"; do
+  full_img="${KYVERNO_REGISTRY}/${img_repo}:${KYVERNO_VERSION}"
+  info "Pulling $full_img..."
+  docker pull "$full_img" >/dev/null 2>&1 || true
+  k3d image import "$full_img" -c "$CLUSTER_NAME" >/dev/null 2>&1 || true
+done
+
+#---------------------------------------------------------------
+# 9. Install Kyverno + Policies
 #---------------------------------------------------------------
 info "Installing Kyverno via Helm..."
 helm repo add kyverno https://kyverno.github.io/kyverno/ 2>/dev/null || true
@@ -240,20 +306,24 @@ helm repo update
 
 if helm list -n kyverno | grep -q kyverno; then
   warn "Kyverno already installed. Syncing..."
-  helm upgrade kyverno kyverno/kyverno -n kyverno
+  helm upgrade kyverno kyverno/kyverno -n kyverno --set global.image.registry=ghcr.io
 else
   info "Installing Kyverno..."
   helm install kyverno kyverno/kyverno \
     --namespace kyverno \
-    --create-namespace
+    --create-namespace \
+    --set global.image.registry=ghcr.io
 fi
 ok "Kyverno chart applied."
 
-wait_for_pods_ready kyverno
+# Non-blocking wait for Kyverno (continues after 60s even if not ready)
+info "Waiting for Kyverno pods (max 60s, non-blocking)..."
+wait_for_pods_ready kyverno 60 || warn "Kyverno is still initializing, but continuing with setup..."
 
-info "Waiting for Kyverno webhook to be ready..."
-kubectl wait --for=condition=Ready pod -l app.kubernetes.io/component=admission-controller -n kyverno --timeout=120s 2>/dev/null || \
-kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=kyverno -n kyverno --timeout=120s
+info "Waiting for Kyverno webhook to be ready (timeout 60s)..."
+kubectl wait --for=condition=Ready pod -l app.kubernetes.io/component=admission-controller -n kyverno --timeout=60s 2>/dev/null || \
+kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=kyverno -n kyverno --timeout=60s 2>/dev/null || \
+warn "Kyverno webhook pods not fully ready yet. Policies will be applied but may take time to enforce."
 ok "Kyverno webhook ready."
 
 info "Applying Kyverno policies..."
@@ -283,9 +353,9 @@ wait_for_pods_ready kube-system
 # 10. Wait for Deployments
 #---------------------------------------------------------------
 info "Waiting for application workloads to be ready..."
-# Built-in wait mechanisms for immediate events
-kubectl rollout status deployment/frontend -n "$NAMESPACE" --timeout=120s
-kubectl rollout status deployment/backend  -n "$NAMESPACE" --timeout=120s
+# Deployment phase with robust readiness checks
+wait_for_deployment "$NAMESPACE" "frontend" 3 120
+wait_for_deployment "$NAMESPACE" "backend"  3 120
 
 # Comprehensive readiness validation for the application namespace
 wait_for_pods_ready "$NAMESPACE"

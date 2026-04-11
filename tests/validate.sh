@@ -59,12 +59,12 @@ else
   fail "Frontend has $FRONTEND_REPLICAS running replicas (expected 6)"
 fi
 
-# Check backend replicas (expecting 2)
+# Check backend replicas (expecting 4)
 BACKEND_REPLICAS=$(kubectl get pods -n "$NAMESPACE" -l app=backend --no-headers 2>/dev/null | grep -c Running)
-if [ "$BACKEND_REPLICAS" -eq 2 ]; then
-  pass "Backend has 2 running replicas"
+if [ "$BACKEND_REPLICAS" -eq 4 ]; then
+  pass "Backend has 4 running replicas"
 else
-  fail "Backend has $BACKEND_REPLICAS running replicas (expected 2)"
+  fail "Backend has $BACKEND_REPLICAS running replicas (expected 4)"
 fi
 
 echo ""
