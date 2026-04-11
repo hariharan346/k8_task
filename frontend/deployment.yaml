@@ -24,10 +24,10 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
               - matchExpressions:
-                  - key: tier
+                  - key: tier/frontend
                     operator: In
                     values:
-                      - frontend
+                      - "true"
                   - key: pool
                     operator: In
                     values:

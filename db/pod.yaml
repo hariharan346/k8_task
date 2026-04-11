@@ -12,10 +12,10 @@ spec:
       requiredDuringSchedulingIgnoredDuringExecution:
         nodeSelectorTerms:
           - matchExpressions:
-              - key: tier
+              - key: tier/db
                 operator: In
                 values:
-                  - db
+                  - "true"
               - key: pool
                 operator: In
                 values:
