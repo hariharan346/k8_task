@@ -222,9 +222,15 @@ if [ "${#AGENT_NODES[@]}" -lt 3 ]; then
   exit 1
 fi
 
+<<<<<<< HEAD
 kubectl label node "${AGENT_NODES[0]}" pool=reserved tier=db       --overwrite
 kubectl label node "${AGENT_NODES[1]}" pool=spot     tier=backend  --overwrite
 kubectl label node "${AGENT_NODES[2]}" pool=spot     tier=frontend --overwrite
+=======
+kubectl label node "${AGENT_NODES[0]}" pool=reserved tier/frontend=true tier/backend=true tier/db=true --overwrite
+kubectl label node "${AGENT_NODES[1]}" pool=spot     tier/frontend=true tier/backend=true        --overwrite
+kubectl label node "${AGENT_NODES[2]}" pool=spot     tier/frontend=true tier/backend=true        --overwrite
+>>>>>>> 25b906f0b6741364f86d2441f525935549476056
 
 ok "Node labels applied:"
 kubectl get nodes --show-labels | grep -E "NAME|agent"
@@ -387,8 +393,11 @@ info "Namespace: $NAMESPACE"
 echo ""
 info "Node assignments:"
 for i in 0 1 2; do
-  POOL=$(kubectl get node "${AGENT_NODES[$i]}" -o jsonpath='{.metadata.labels.pool}')
-  echo "   ${AGENT_NODES[$i]} → pool=$POOL"
+  NODE_NAME="${AGENT_NODES[$i]}"
+  POOL=$(kubectl get node "$NODE_NAME" -o jsonpath='{.metadata.labels.pool}')
+  # List all labels, filter for "tier/", and extract the values
+  TIERS=$(kubectl get node "$NODE_NAME" --show-labels | grep -o 'tier/[^, ]*' | cut -d/ -f2 | tr '\n' ',' | sed 's/,$//')
+  echo "   $NODE_NAME → pool=$POOL, tiers=[$TIERS]"
 done
 echo ""
 info "Pod placement:"
