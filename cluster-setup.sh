@@ -222,15 +222,9 @@ if [ "${#AGENT_NODES[@]}" -lt 3 ]; then
   exit 1
 fi
 
-<<<<<<< HEAD
-kubectl label node "${AGENT_NODES[0]}" pool=reserved tier=db       --overwrite
-kubectl label node "${AGENT_NODES[1]}" pool=spot     tier=backend  --overwrite
-kubectl label node "${AGENT_NODES[2]}" pool=spot     tier=frontend --overwrite
-=======
 kubectl label node "${AGENT_NODES[0]}" pool=reserved tier/frontend=true tier/backend=true tier/db=true --overwrite
 kubectl label node "${AGENT_NODES[1]}" pool=spot     tier/frontend=true tier/backend=true        --overwrite
 kubectl label node "${AGENT_NODES[2]}" pool=spot     tier/frontend=true tier/backend=true        --overwrite
->>>>>>> 25b906f0b6741364f86d2441f525935549476056
 
 ok "Node labels applied:"
 kubectl get nodes --show-labels | grep -E "NAME|agent"
