@@ -1,0 +1,282 @@
+[H[2J[3J
+[0;32m[1m╔══════════════════════════════════════════════════════════════════════════════╗[0m
+[0;32m[1m║                                                                              ║[0m
+[0;32m[1m║     🚀  KUBERNETES 70/30 WORKLOAD DISTRIBUTION — INTERVIEW DEMO  🚀         ║[0m
+[0;32m[1m║                                                                              ║[0m
+[0;32m[1m║  This demo walks through 14 scenarios proving how the Kubernetes scheduler   ║[0m
+[0;32m[1m║  distributes pods across Spot (70%) and Reserved (30%) node pools, and how   ║[0m
+[0;32m[1m║  the system reacts to scaling, failures, and pool removal/restoration.       ║[0m
+[0;32m[1m║                                                                              ║[0m
+[0;32m[1m║  ⚠  70/30 is approximate (preferred affinity), not exact.                    ║[0m
+[0;32m[1m║                                                                              ║[0m
+[0;32m[1m╚══════════════════════════════════════════════════════════════════════════════╝[0m
+
+[0;36m  ℹ  [INFO][0m   Cluster: three-tier | Namespace: three-tier | Target: app=frontend
+[0;36m  ℹ  [INFO][0m   Starting demo with 2026-04-13 17:56:37
+
+[1;37m[1m  Cluster Node Inventory:[0m
+    k3d-extra-agent-1-0       Ready   reserved   true
+    k3d-extra-agent-2-0       Ready   spot       true
+    k3d-extra-agent-3-0       Ready   spot       true
+    k3d-three-tier-agent-0    Ready   spot       true
+    k3d-three-tier-agent-1    Ready   spot       true
+    k3d-three-tier-agent-2    Ready   spot       true
+    k3d-three-tier-server-0   Ready   <none>     true
+
+
+[0;36m  ⏩ Press Enter to continue to next scenario...[0m
+
+[0;35m╔════════════════════════════════════════════════════════════════════════════╗[0m
+[0;35m║  SCENARIO 1: ADD ONE POD                                                   ║[0m
+[0;35m╚════════════════════════════════════════════════════════════════════════════╝[0m
+
+
+[1;37m[1m── BEFORE STATE ──[0m
+
+[0;36m  ℹ  [INFO][0m   Current replica count: 6
+
+[0;36m  ╔═══════════════════════════════════════════════════════════════╗[0m
+[0;36m  ║  📊 DISTRIBUTION: BEFORE — Baseline                         ║[0m
+[0;36m  ╚═══════════════════════════════════════════════════════════════╝[0m
+
+  [1m  POD NAME                                   → NODE                           → POOL      [0m
+  [2m  ──────────────────────────────────────────────────────────────────────────────────[0m
+  [0;32m  frontend-6b85cc7c69-6zl59                  → k3d-extra-agent-3-0            → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-2rhbx                  → k3d-three-tier-agent-1         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-4j54n                  → k3d-three-tier-agent-0         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-579wv                  → k3d-three-tier-agent-0         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-99pgq                  → k3d-three-tier-agent-2         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-dw8ss                  → k3d-three-tier-agent-2         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-qzksb                  → k3d-three-tier-agent-0         → 🟢 spot [0m
+  [0;32m  frontend-7c97ffd49f-44zdj                  → k3d-extra-agent-2-0            → 🟢 spot [0m
+  [0;34m  frontend-7c97ffd49f-7vm48                  → k3d-extra-agent-1-0            → 🔵 reserved[0m
+  [0;32m  frontend-7c97ffd49f-cvnc7                  → k3d-extra-agent-3-0            → 🟢 spot [0m
+  [0;32m  frontend-7c97ffd49f-t4ltx                  → k3d-extra-agent-2-0            → 🟢 spot [0m
+  [0;32m  frontend-7c97ffd49f-zsj2b                  → k3d-extra-agent-3-0            → 🟢 spot [0m
+
+  [1;37m[1m  SUMMARY[0m
+  [2m  ┌──────────────────────┬───────────┬────────────┐[0m
+  [2m  │[0m [1mPool                [0m [2m│[0m [1mCount    [0m [2m│[0m [1mPercentage[0m [2m│[0m
+  [2m  ├──────────────────────┼───────────┼────────────┤[0m
+  [2m  │[0m [0;32m🟢 Spot (target 70%)[0m [2m│[0m [0;32m11       [0m [2m│[0m [0;32m91.7     %[0m [2m│[0m
+  [2m  │[0m [0;34m🔵 Reserved (tgt 30%)[0m [2m│[0m [0;34m1        [0m [2m│[0m [0;34m8.3      %[0m [2m│[0m
+  [2m  ├──────────────────────┼───────────┼────────────┤[0m
+  [2m  │[0m [1mTOTAL               [0m [2m│[0m [1m12       [0m [2m│[0m [1m100%      [0m [2m│[0m
+  [2m  └──────────────────────┴───────────┴────────────┘[0m
+
+
+[1;37m[1m── EXECUTING ──[0m
+
+[1;33m  ▶  [ACTION][0m Scaling frontend from current replicas to +1 (7 total)...
+deployment.apps/frontend scaled
+[0;36m  ⏳ [WAIT][0m Waiting for 7 Running pod(s) . [0;32m✔ Ready![0m
+
+[1;37m[1m── AFTER STATE ──[0m
+
+
+[0;36m  ╔═══════════════════════════════════════════════════════════════╗[0m
+[0;36m  ║  📊 DISTRIBUTION: AFTER — 7 Replicas (+1 Pod Added)         ║[0m
+[0;36m  ╚═══════════════════════════════════════════════════════════════╝[0m
+
+  [1m  POD NAME                                   → NODE                           → POOL      [0m
+  [2m  ──────────────────────────────────────────────────────────────────────────────────[0m
+  [0;32m  frontend-6b85cc7c69-6zl59                  → k3d-extra-agent-3-0            → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-2rhbx                  → k3d-three-tier-agent-1         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-4j54n                  → k3d-three-tier-agent-0         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-579wv                  → k3d-three-tier-agent-0         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-99pgq                  → k3d-three-tier-agent-2         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-dw8ss                  → k3d-three-tier-agent-2         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-qzksb                  → k3d-three-tier-agent-0         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-zrqzd                  → k3d-three-tier-agent-1         → 🟢 spot [0m
+  [0;32m  frontend-7c97ffd49f-44zdj                  → k3d-extra-agent-2-0            → 🟢 spot [0m
+  [0;34m  frontend-7c97ffd49f-7vm48                  → k3d-extra-agent-1-0            → 🔵 reserved[0m
+  [0;32m  frontend-7c97ffd49f-cvnc7                  → k3d-extra-agent-3-0            → 🟢 spot [0m
+  [0;32m  frontend-7c97ffd49f-t4ltx                  → k3d-extra-agent-2-0            → 🟢 spot [0m
+  [0;32m  frontend-7c97ffd49f-zsj2b                  → k3d-extra-agent-3-0            → 🟢 spot [0m
+
+  [1;37m[1m  SUMMARY[0m
+  [2m  ┌──────────────────────┬───────────┬────────────┐[0m
+  [2m  │[0m [1mPool                [0m [2m│[0m [1mCount    [0m [2m│[0m [1mPercentage[0m [2m│[0m
+  [2m  ├──────────────────────┼───────────┼────────────┤[0m
+  [2m  │[0m [0;32m🟢 Spot (target 70%)[0m [2m│[0m [0;32m12       [0m [2m│[0m [0;32m92.3     %[0m [2m│[0m
+  [2m  │[0m [0;34m🔵 Reserved (tgt 30%)[0m [2m│[0m [0;34m1        [0m [2m│[0m [0;34m7.7      %[0m [2m│[0m
+  [2m  ├──────────────────────┼───────────┼────────────┤[0m
+  [2m  │[0m [1mTOTAL               [0m [2m│[0m [1m13       [0m [2m│[0m [1m100%      [0m [2m│[0m
+  [2m  └──────────────────────┴───────────┴────────────┘[0m
+
+
+[0;32m  ┌─────────────────────────────────────────────────────────────┐[0m
+[0;32m  │  📖 EXPLANATION                                             │[0m
+[0;32m  ├─────────────────────────────────────────────────────────────┤[0m
+[0;32m  │[0m  When adding a single pod, the Kubernetes scheduler evaluates all [0;32m│[0m
+[0;32m  │[0m  eligible nodes using the preferredDuringScheduling weights. [0;32m│[0m
+[0;32m  │[0m  The new pod PREFERS Spot (weight 70) over Reserved (weight 30), [0;32m│[0m
+[0;32m  │[0m  so it will most likely land on a Spot node.               [0;32m│[0m
+[0;32m  │[0m  70/30 is approximate — not exact per-pod, but trends over scale. [0;32m│[0m
+[0;32m  └─────────────────────────────────────────────────────────────┘[0m
+
+
+[0;36m  ⏩ Press Enter to continue to next scenario...[0m
+
+[0;35m╔════════════════════════════════════════════════════════════════════════════╗[0m
+[0;35m║  SCENARIO 2: ADD MULTIPLE PODS                                             ║[0m
+[0;35m╚════════════════════════════════════════════════════════════════════════════╝[0m
+
+
+[1;37m[1m── BEFORE STATE ──[0m
+
+
+[0;36m  ╔═══════════════════════════════════════════════════════════════╗[0m
+[0;36m  ║  📊 DISTRIBUTION: BEFORE — 7 Replicas                       ║[0m
+[0;36m  ╚═══════════════════════════════════════════════════════════════╝[0m
+
+  [1m  POD NAME                                   → NODE                           → POOL      [0m
+  [2m  ──────────────────────────────────────────────────────────────────────────────────[0m
+  [0;32m  frontend-6b85cc7c69-6zl59                  → k3d-extra-agent-3-0            → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-2rhbx                  → k3d-three-tier-agent-1         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-4j54n                  → k3d-three-tier-agent-0         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-579wv                  → k3d-three-tier-agent-0         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-99pgq                  → k3d-three-tier-agent-2         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-dw8ss                  → k3d-three-tier-agent-2         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-qzksb                  → k3d-three-tier-agent-0         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-zrqzd                  → k3d-three-tier-agent-1         → 🟢 spot [0m
+  [0;32m  frontend-7c97ffd49f-44zdj                  → k3d-extra-agent-2-0            → 🟢 spot [0m
+  [0;34m  frontend-7c97ffd49f-7vm48                  → k3d-extra-agent-1-0            → 🔵 reserved[0m
+  [0;32m  frontend-7c97ffd49f-cvnc7                  → k3d-extra-agent-3-0            → 🟢 spot [0m
+  [0;32m  frontend-7c97ffd49f-t4ltx                  → k3d-extra-agent-2-0            → 🟢 spot [0m
+  [0;32m  frontend-7c97ffd49f-zsj2b                  → k3d-extra-agent-3-0            → 🟢 spot [0m
+
+  [1;37m[1m  SUMMARY[0m
+  [2m  ┌──────────────────────┬───────────┬────────────┐[0m
+  [2m  │[0m [1mPool                [0m [2m│[0m [1mCount    [0m [2m│[0m [1mPercentage[0m [2m│[0m
+  [2m  ├──────────────────────┼───────────┼────────────┤[0m
+  [2m  │[0m [0;32m🟢 Spot (target 70%)[0m [2m│[0m [0;32m12       [0m [2m│[0m [0;32m92.3     %[0m [2m│[0m
+  [2m  │[0m [0;34m🔵 Reserved (tgt 30%)[0m [2m│[0m [0;34m1        [0m [2m│[0m [0;34m7.7      %[0m [2m│[0m
+  [2m  ├──────────────────────┼───────────┼────────────┤[0m
+  [2m  │[0m [1mTOTAL               [0m [2m│[0m [1m13       [0m [2m│[0m [1m100%      [0m [2m│[0m
+  [2m  └──────────────────────┴───────────┴────────────┘[0m
+
+
+[1;37m[1m── EXECUTING ──[0m
+
+[1;33m  ▶  [ACTION][0m Scaling frontend to 20 replicas (+13 pods)...
+deployment.apps/frontend scaled
+[0;36m  ⏳ [WAIT][0m Waiting for 20 Running pod(s) .. [0;32m✔ Ready![0m
+
+[1;37m[1m── AFTER STATE ──[0m
+
+
+[0;36m  ╔═══════════════════════════════════════════════════════════════╗[0m
+[0;36m  ║  📊 DISTRIBUTION: AFTER — 20 Replicas (+13 Pods Added)      ║[0m
+[0;36m  ╚═══════════════════════════════════════════════════════════════╝[0m
+
+  [1m  POD NAME                                   → NODE                           → POOL      [0m
+  [2m  ──────────────────────────────────────────────────────────────────────────────────[0m
+  [0;32m  frontend-6b85cc7c69-6zl59                  → k3d-extra-agent-3-0            → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-2rhbx                  → k3d-three-tier-agent-1         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-4j54n                  → k3d-three-tier-agent-0         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-4md28                  → k3d-three-tier-agent-1         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-4sv26                  → k3d-three-tier-agent-0         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-579wv                  → k3d-three-tier-agent-0         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-99pgq                  → k3d-three-tier-agent-2         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-9x7lt                  → k3d-three-tier-agent-1         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-dw8ss                  → k3d-three-tier-agent-2         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-hbpkn                  → k3d-three-tier-agent-2         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-j24qx                  → k3d-three-tier-agent-2         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-ldtp9                  → k3d-three-tier-agent-0         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-p8q9b                  → k3d-three-tier-agent-1         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-qbqkc                  → k3d-three-tier-agent-1         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-qzksb                  → k3d-three-tier-agent-0         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-rrwz9                  → k3d-three-tier-agent-2         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-spjwh                  → k3d-three-tier-agent-0         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-wx59j                  → k3d-three-tier-agent-1         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-zfcql                  → k3d-three-tier-agent-2         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-zrqzd                  → k3d-three-tier-agent-1         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-zsr9q                  → k3d-three-tier-agent-2         → 🟢 spot [0m
+  [0;32m  frontend-7c97ffd49f-44zdj                  → k3d-extra-agent-2-0            → 🟢 spot [0m
+  [0;34m  frontend-7c97ffd49f-7vm48                  → k3d-extra-agent-1-0            → 🔵 reserved[0m
+  [0;32m  frontend-7c97ffd49f-cvnc7                  → k3d-extra-agent-3-0            → 🟢 spot [0m
+  [0;32m  frontend-7c97ffd49f-t4ltx                  → k3d-extra-agent-2-0            → 🟢 spot [0m
+  [0;32m  frontend-7c97ffd49f-zsj2b                  → k3d-extra-agent-3-0            → 🟢 spot [0m
+
+  [1;37m[1m  SUMMARY[0m
+  [2m  ┌──────────────────────┬───────────┬────────────┐[0m
+  [2m  │[0m [1mPool                [0m [2m│[0m [1mCount    [0m [2m│[0m [1mPercentage[0m [2m│[0m
+  [2m  ├──────────────────────┼───────────┼────────────┤[0m
+  [2m  │[0m [0;32m🟢 Spot (target 70%)[0m [2m│[0m [0;32m25       [0m [2m│[0m [0;32m96.2     %[0m [2m│[0m
+  [2m  │[0m [0;34m🔵 Reserved (tgt 30%)[0m [2m│[0m [0;34m1        [0m [2m│[0m [0;34m3.8      %[0m [2m│[0m
+  [2m  ├──────────────────────┼───────────┼────────────┤[0m
+  [2m  │[0m [1mTOTAL               [0m [2m│[0m [1m26       [0m [2m│[0m [1m100%      [0m [2m│[0m
+  [2m  └──────────────────────┴───────────┴────────────┘[0m
+
+
+[0;32m  ┌─────────────────────────────────────────────────────────────┐[0m
+[0;32m  │  📖 EXPLANATION                                             │[0m
+[0;32m  ├─────────────────────────────────────────────────────────────┤[0m
+[0;32m  │[0m  With 13 new pods, the 70/30 ratio becomes clearly visible. [0;32m│[0m
+[0;32m  │[0m  The scheduler scores each node: Spot nodes get +70 affinity [0;32m│[0m
+[0;32m  │[0m  bonus, Reserved nodes get +30. Combined with topology spread [0;32m│[0m
+[0;32m  │[0m  (maxSkew: 1), about 14 land on Spot and 6 on Reserved.    [0;32m│[0m
+[0;32m  │[0m  At higher scale, the 70/30 distribution is more pronounced. [0;32m│[0m
+[0;32m  └─────────────────────────────────────────────────────────────┘[0m
+
+
+[0;36m  ⏩ Press Enter to continue to next scenario...[0m
+
+[0;35m╔════════════════════════════════════════════════════════════════════════════╗[0m
+[0;35m║  SCENARIO 3: REMOVE ONE POD                                                ║[0m
+[0;35m╚════════════════════════════════════════════════════════════════════════════╝[0m
+
+
+[1;37m[1m── BEFORE STATE ──[0m
+
+
+[0;36m  ╔═══════════════════════════════════════════════════════════════╗[0m
+[0;36m  ║  📊 DISTRIBUTION: BEFORE — 20 Replicas                      ║[0m
+[0;36m  ╚═══════════════════════════════════════════════════════════════╝[0m
+
+  [1m  POD NAME                                   → NODE                           → POOL      [0m
+  [2m  ──────────────────────────────────────────────────────────────────────────────────[0m
+  [0;32m  frontend-6b85cc7c69-6zl59                  → k3d-extra-agent-3-0            → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-2rhbx                  → k3d-three-tier-agent-1         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-4j54n                  → k3d-three-tier-agent-0         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-4md28                  → k3d-three-tier-agent-1         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-4sv26                  → k3d-three-tier-agent-0         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-579wv                  → k3d-three-tier-agent-0         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-99pgq                  → k3d-three-tier-agent-2         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-9x7lt                  → k3d-three-tier-agent-1         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-dw8ss                  → k3d-three-tier-agent-2         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-hbpkn                  → k3d-three-tier-agent-2         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-j24qx                  → k3d-three-tier-agent-2         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-ldtp9                  → k3d-three-tier-agent-0         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-p8q9b                  → k3d-three-tier-agent-1         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-qbqkc                  → k3d-three-tier-agent-1         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-qzksb                  → k3d-three-tier-agent-0         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-rrwz9                  → k3d-three-tier-agent-2         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-spjwh                  → k3d-three-tier-agent-0         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-wx59j                  → k3d-three-tier-agent-1         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-zfcql                  → k3d-three-tier-agent-2         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-zrqzd                  → k3d-three-tier-agent-1         → 🟢 spot [0m
+  [0;32m  frontend-6cb5b467f4-zsr9q                  → k3d-three-tier-agent-2         → 🟢 spot [0m
+  [0;32m  frontend-7c97ffd49f-44zdj                  → k3d-extra-agent-2-0            → 🟢 spot [0m
+  [0;34m  frontend-7c97ffd49f-7vm48                  → k3d-extra-agent-1-0            → 🔵 reserved[0m
+  [0;32m  frontend-7c97ffd49f-cvnc7                  → k3d-extra-agent-3-0            → 🟢 spot [0m
+  [0;32m  frontend-7c97ffd49f-t4ltx                  → k3d-extra-agent-2-0            → 🟢 spot [0m
+  [0;32m  frontend-7c97ffd49f-zsj2b                  → k3d-extra-agent-3-0            → 🟢 spot [0m
+
+  [1;37m[1m  SUMMARY[0m
+  [2m  ┌──────────────────────┬───────────┬────────────┐[0m
+  [2m  │[0m [1mPool                [0m [2m│[0m [1mCount    [0m [2m│[0m [1mPercentage[0m [2m│[0m
+  [2m  ├──────────────────────┼───────────┼────────────┤[0m
+  [2m  │[0m [0;32m🟢 Spot (target 70%)[0m [2m│[0m [0;32m25       [0m [2m│[0m [0;32m96.2     %[0m [2m│[0m
+  [2m  │[0m [0;34m🔵 Reserved (tgt 30%)[0m [2m│[0m [0;34m1        [0m [2m│[0m [0;34m3.8      %[0m [2m│[0m
+  [2m  ├──────────────────────┼───────────┼────────────┤[0m
+  [2m  │[0m [1mTOTAL               [0m [2m│[0m [1m26       [0m [2m│[0m [1m100%      [0m [2m│[0m
+  [2m  └──────────────────────┴───────────┴────────────┘[0m
+
+
+[1;37m[1m── EXECUTING ──[0m
+
+[1;33m  ▶  [ACTION][0m Deleting 1 random pod manually...
+[0;36m  ℹ  [INFO][0m   Deleting: pod/frontend-6b85cc7c69-6zl59
+pod "frontend-6b85cc7c69-6zl59" deleted from three-tier namespace

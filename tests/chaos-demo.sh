@@ -385,10 +385,12 @@ $KUBECTL_CMD get nodes -o custom-columns="NAME:.metadata.name,POOL:.metadata.lab
 
 section_header "EXECUTING"
 action "Adding 'extra-agent-1' to cluster..."
-$K3D_CMD node create "extra-agent-1" --cluster "$CLUSTER_NAME" > /dev/null 2>&1
-wait_for_nodes_ready "k3d-three-tier-extra-agent-1"
+if ! $KUBECTL_CMD get node "k3d-extra-agent-1-0" &>/dev/null; then
+    $K3D_CMD node create "extra-agent-1" --cluster "$CLUSTER_NAME" > /dev/null 2>&1
+fi
+wait_for_nodes_ready "k3d-extra-agent-1-0"
 action "Labeling new node as pool=spot, tier/frontend=true..."
-$KUBECTL_CMD label node k3d-three-tier-extra-agent-1 pool=spot tier/frontend=true --overwrite
+$KUBECTL_CMD label node k3d-extra-agent-1-0 pool=spot tier/frontend=true --overwrite
 
 section_header "AFTER STATE (before rebalance)"
 show_distribution "AFTER NODE ADD — No Rebalance Yet"
@@ -420,12 +422,16 @@ show_distribution "BEFORE — With extra-agent-1"
 
 section_header "EXECUTING"
 action "Adding 'extra-agent-2' and 'extra-agent-3' to cluster..."
-$K3D_CMD node create "extra-agent-2" --cluster "$CLUSTER_NAME" > /dev/null 2>&1
-$K3D_CMD node create "extra-agent-3" --cluster "$CLUSTER_NAME" > /dev/null 2>&1
-wait_for_nodes_ready "k3d-three-tier-extra-agent-2 k3d-three-tier-extra-agent-3"
+if ! $KUBECTL_CMD get node "k3d-extra-agent-2-0" &>/dev/null; then
+    $K3D_CMD node create "extra-agent-2" --cluster "$CLUSTER_NAME" > /dev/null 2>&1
+fi
+if ! $KUBECTL_CMD get node "k3d-extra-agent-3-0" &>/dev/null; then
+    $K3D_CMD node create "extra-agent-3" --cluster "$CLUSTER_NAME" > /dev/null 2>&1
+fi
+wait_for_nodes_ready "k3d-extra-agent-2-0 k3d-extra-agent-3-0"
 action "Labeling extra-agent-2 as pool=spot, extra-agent-3 as pool=reserved..."
-$KUBECTL_CMD label node k3d-three-tier-extra-agent-2 pool=spot tier/frontend=true --overwrite
-$KUBECTL_CMD label node k3d-three-tier-extra-agent-3 pool=reserved tier/frontend=true --overwrite
+$KUBECTL_CMD label node k3d-extra-agent-2-0 pool=spot tier/frontend=true --overwrite
+$KUBECTL_CMD label node k3d-extra-agent-3-0 pool=reserved tier/frontend=true --overwrite
 
 action "Triggering rollout to redistribute..."
 $KUBECTL_CMD rollout restart deployment/frontend -n "$NAMESPACE"
@@ -455,7 +461,7 @@ $KUBECTL_CMD get nodes -o custom-columns="NAME:.metadata.name,POOL:.metadata.lab
 
 section_header "EXECUTING"
 action "Deleting extra-agent-1 (Spot node)..."
-$K3D_CMD node delete k3d-three-tier-extra-agent-1 > /dev/null 2>&1 || true
+$K3D_CMD node delete k3d-extra-agent-1-0 > /dev/null 2>&1 || true
 sleep 5
 wait_for_pods 8
 
@@ -481,8 +487,8 @@ show_distribution "BEFORE — Current State"
 
 section_header "EXECUTING"
 action "Deleting extra-agent-2 AND extra-agent-3 simultaneously (rack failure!)..."
-$K3D_CMD node delete k3d-three-tier-extra-agent-2 > /dev/null 2>&1 || true
-$K3D_CMD node delete k3d-three-tier-extra-agent-3 > /dev/null 2>&1 || true
+$K3D_CMD node delete k3d-extra-agent-2-0 > /dev/null 2>&1 || true
+$K3D_CMD node delete k3d-extra-agent-3-0 > /dev/null 2>&1 || true
 sleep 5
 wait_for_pods 8
 
