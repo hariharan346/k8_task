@@ -149,7 +149,7 @@ wait_for_pods_ready() {
   info "DEBUG: Recent namespace events:"
   kubectl get events -n "$namespace" --sort-by='.lastTimestamp' | tail -n 15 || true
   echo "------------------------------------------------------------"
-  exit 1
+  return 1
 }
 
 #---------------------------------------------------------------
@@ -288,6 +288,7 @@ KYVERNO_IMAGES=(
   "kyverno/background-controller"
   "kyverno/cleanup-controller"
   "kyverno/reports-controller"
+  "kyverno/kyverno-cli"
 )
 
 for img_repo in "${KYVERNO_IMAGES[@]}"; do
@@ -306,23 +307,33 @@ helm repo update
 
 if helm list -n kyverno | grep -q kyverno; then
   warn "Kyverno already installed. Syncing..."
-  helm upgrade kyverno kyverno/kyverno -n kyverno --set global.image.registry=ghcr.io
+  helm upgrade kyverno kyverno/kyverno -n kyverno --set global.image.registry=ghcr.io --timeout 10m
 else
   info "Installing Kyverno..."
+  # Ensure any old job is gone
+  kubectl delete job kyverno-migrate-resources -n kyverno --ignore-not-found 2>/dev/null || true
+  
+  # Wait if namespace is terminating
+  if kubectl get ns kyverno 2>/dev/null | grep -q "Terminating"; then
+    warn "Kyverno namespace is terminating. Waiting..."
+    kubectl wait --for=delete namespace/kyverno --timeout=60s || true
+  fi
+
   helm install kyverno kyverno/kyverno \
     --namespace kyverno \
     --create-namespace \
-    --set global.image.registry=ghcr.io
+    --set global.image.registry=ghcr.io \
+    --timeout 10m
 fi
 ok "Kyverno chart applied."
 
-# Non-blocking wait for Kyverno (continues after 60s even if not ready)
-info "Waiting for Kyverno pods (max 60s, non-blocking)..."
-wait_for_pods_ready kyverno 60 || warn "Kyverno is still initializing, but continuing with setup..."
+# Extra time for Kyverno as it performs internal certificate generation
+info "Waiting for Kyverno pods (max 300s, non-blocking)..."
+wait_for_pods_ready kyverno 300 || warn "Kyverno is still initializing, but continuing with setup..."
 
-info "Waiting for Kyverno webhook to be ready (timeout 60s)..."
-kubectl wait --for=condition=Ready pod -l app.kubernetes.io/component=admission-controller -n kyverno --timeout=60s 2>/dev/null || \
-kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=kyverno -n kyverno --timeout=60s 2>/dev/null || \
+info "Waiting for Kyverno webhook to be ready (timeout 120s)..."
+kubectl wait --for=condition=Ready pod -l app.kubernetes.io/component=admission-controller -n kyverno --timeout=120s 2>/dev/null || \
+kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=kyverno -n kyverno --timeout=120s 2>/dev/null || \
 warn "Kyverno webhook pods not fully ready yet. Policies will be applied but may take time to enforce."
 ok "Kyverno webhook ready."
 
