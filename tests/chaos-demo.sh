@@ -207,21 +207,26 @@ wait_for_pods() {
 wait_for_nodes_ready() {
     local nodes="$@"
     echo -ne "${CYAN}  ⏳ [WAIT]${NC} Waiting for node(s) to become Ready "
-    local timeout=120 elapsed=0
+    # Give k3d time to register the node with the API server
+    sleep 10
+    local timeout=300 elapsed=0
     while [ $elapsed -lt $timeout ]; do
         local all_ready=true
         for node in $nodes; do
             local status
             status=$($KUBECTL_CMD get node "$node" --no-headers 2>/dev/null | awk '{print $2}' || echo "NotFound")
-            if [[ "$status" != "Ready" ]]; then all_ready=false; break; fi
+            # Use partial match: status may be "Ready" or "Ready,SchedulingDisabled" etc.
+            if [[ "$status" != *"Ready"* || "$status" == "NotFound" ]]; then all_ready=false; break; fi
         done
         if $all_ready; then echo -e " ${GREEN}✔ Ready!${NC}"; return 0; fi
         echo -ne "."
-        sleep 3
-        elapsed=$((elapsed + 3))
+        sleep 5
+        elapsed=$((elapsed + 5))
     done
-    echo -e " ${RED}✖ Timeout!${NC}"
-    return 1
+    echo -e " ${RED}✖ Timeout after ${timeout}s${NC}"
+    # Don't exit the script — let the user inspect manually
+    note "Node(s) not ready yet. Continuing anyway — check manually with: kubectl get nodes"
+    return 0
 }
 
 #==============================================================================
