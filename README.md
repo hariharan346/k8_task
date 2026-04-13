@@ -70,13 +70,20 @@ Once the setup is complete, run the automated validation suite:
 ```
 *This script tests every single requirement (scheduling, networking, security) and reports a PASS/FAIL.*
 
+### 4. Interactive Chaos Demo (NEW)
+To see the **70/30 distribution** in action and observe how the cluster reacts to failures and scaling:
+```bash
+./tests/chaos-demo.sh
+```
+*This interactive script demonstrates 8 practical scenarios (Scaling Pods, Node Failure, Pool Removal) with real-time explanations.*
+
 ---
 
 ## 📖 Deep Dive & Command Reference
 
 For a complete explanation of every command used in this project and how to perform manual demonstrations, please see the:
 
-👉 **[OPERATIONS_GUIDE.md](file:///e:/Abluva/OPERATIONS_GUIDE.md)**
+👉 **[OPERATIONS_GUIDE.md](file:///e:/abluva/OPERATIONS_GUIDE.md)**
 
 ---
 
@@ -102,4 +109,3 @@ To wipe the environment and free up resources:
 ```bash
 k3d cluster delete three-tier
 ```
-# k8_task
