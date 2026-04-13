@@ -1,260 +1,744 @@
 #!/bin/bash
 #==============================================================================
-# Kubernetes Workload Distribution Chaos Demo (EXPERT TIER - VISIBILITY MODE)
-# Validates 70/30 Spot/Reserved balancing with detailed system reaction logs.
+# Kubernetes Workload Distribution Chaos Demo (INTERVIEW-READY EDITION)
+# Validates 70/30 Spot/Reserved balancing across 14 real-world scenarios
+# with full visibility of pod distribution, node mapping, and system behavior.
+#
+# NOTE: 70/30 is approximate (preferredDuringScheduling affinity weights),
+#       not an exact guarantee. Actual ratios depend on node count, existing
+#       load, topology spread, and anti-affinity constraints.
 #==============================================================================
 
 set -euo pipefail
 
-# Colors
+# ─── Colors ──────────────────────────────────────────────────────────────────
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 MAGENTA='\033[0;35m'
+BLUE='\033[0;34m'
+WHITE='\033[1;37m'
+BOLD='\033[1m'
+DIM='\033[2m'
 NC='\033[0m'
 
 NAMESPACE="three-tier"
 CLUSTER_NAME="three-tier"
 APP_LABEL="app=frontend"
 
-# Cross-platform command detection
+# ─── Cross-platform command detection ────────────────────────────────────────
 if command -v k3d.exe &>/dev/null; then K3D_CMD="k3d.exe"; else K3D_CMD="k3d"; fi
 if command -v kubectl.exe &>/dev/null; then KUBECTL_CMD="kubectl.exe"; else KUBECTL_CMD="kubectl"; fi
 
-# Functions
+# ─── Scenario Counter ───────────────────────────────────────────────────────
+SCENARIO_NUM=0
+
+#==============================================================================
+# UTILITY FUNCTIONS
+#==============================================================================
+
 header() {
-    echo -e "\n${MAGENTA}==============================================================================${NC}"
-    echo -e "${MAGENTA} SCENARIO: $1${NC}"
-    echo -e "${MAGENTA}==============================================================================${NC}"
+    SCENARIO_NUM=$((SCENARIO_NUM + 1))
+    local title="SCENARIO ${SCENARIO_NUM}: $1"
+    local box_width=78
+    local inner=$((box_width - 4))
+    local pad=$((inner - ${#title}))
+    [[ $pad -lt 1 ]] && pad=1
+    echo ""
+    echo -e "${MAGENTA}╔$(printf '═%.0s' $(seq 1 $((box_width - 2))))╗${NC}"
+    echo -e "${MAGENTA}║  ${title}$(printf '%*s' $pad '')║${NC}"
+    echo -e "${MAGENTA}╚$(printf '═%.0s' $(seq 1 $((box_width - 2))))╝${NC}"
+    echo ""
 }
 
-info()    { echo -e "${CYAN}[INFO]${NC}  $*"; }
-action()  { echo -e "${YELLOW}[ACTION]${NC} $*"; }
-ok()      { echo -e "${GREEN}[OK]${NC}    $*"; }
-fail()    { echo -e "${RED}[FAIL]${NC}  $*"; }
-
-reaction() {
-    echo -e "\n${GREEN}SYSTEM REACTION:${NC}"
-    echo -e "------------------------------------------------------------"
-    echo -e "$*"
-    echo -e "------------------------------------------------------------"
+section_header() {
+    echo -e "\n${WHITE}${BOLD}── $1 ──${NC}\n"
 }
+
+info()    { echo -e "${CYAN}  ℹ  [INFO]${NC}   $*"; }
+action()  { echo -e "${YELLOW}  ▶  [ACTION]${NC} $*"; }
+ok()      { echo -e "${GREEN}  ✔  [OK]${NC}     $*"; }
+fail()    { echo -e "${RED}  ✖  [FAIL]${NC}   $*"; }
+note()    { echo -e "${DIM}  ⚠  [NOTE]${NC}   $*"; }
 
 explain() {
-    echo -e "\n${YELLOW}HOW IT BALANCES:${NC}"
-    echo -e "$*"
+    echo ""
+    echo -e "${GREEN}  ┌─────────────────────────────────────────────────────────────┐${NC}"
+    echo -e "${GREEN}  │  📖 EXPLANATION                                             │${NC}"
+    echo -e "${GREEN}  ├─────────────────────────────────────────────────────────────┤${NC}"
+    while IFS= read -r line; do
+        printf "${GREEN}  │${NC}  %-57s ${GREEN}│${NC}\n" "$line"
+    done <<< "$*"
+    echo -e "${GREEN}  └─────────────────────────────────────────────────────────────┘${NC}"
     echo ""
 }
 
 pause() {
-    echo -ne "${CYAN}[NEXT]${NC} Press Enter to continue..."
+    echo ""
+    echo -ne "${CYAN}  ⏩ Press Enter to continue to next scenario...${NC}"
     read -r
+    echo ""
 }
 
-get_distribution() {
+#==============================================================================
+# POD DISTRIBUTION DISPLAY (REUSABLE)
+#==============================================================================
+
+# Prints:  Pod Name → Node → Pool   for every frontend pod
+# Then:    Summary table with counts and percentages
+show_distribution() {
+    local label="${1:-CURRENT STATE}"
+
+    echo -e "\n${CYAN}  ╔═══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}  ║  📊 DISTRIBUTION: ${label}$(printf '%*s' $((42 - ${#label})) '')║${NC}"
+    echo -e "${CYAN}  ╚═══════════════════════════════════════════════════════════════╝${NC}"
+
+    # Build node → pool mapping
+    declare -A node_pool
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        local n_name n_pool
+        n_name=$(echo "$line" | awk '{print $1}')
+        n_pool=$(echo "$line" | awk '{print $2}')
+        node_pool["$n_name"]="${n_pool:-<none>}"
+    done < <($KUBECTL_CMD get nodes -o custom-columns="NAME:.metadata.name,POOL:.metadata.labels.pool" --no-headers 2>/dev/null)
+
+    # Gather pod data
     local pods
     pods=$($KUBECTL_CMD get pods -n "$NAMESPACE" -l "$APP_LABEL" -o wide --no-headers 2>/dev/null || true)
-    
-    if [[ -z "$pods" ]]; then echo "0 0 0"; return; fi
 
-    declare -A node_pool
-    while read -r name pool; do
-        node_pool["$name"]="$pool"
-    done < <($KUBECTL_CMD get nodes -o custom-columns="NAME:.metadata.name,POOL:.metadata.labels.pool" --no-headers)
+    local spot=0 res=0 pending=0 other=0 total=0
 
-    local spot=0 res=0 total=0
-    while read -r line; do
-        [[ -z "$line" ]] && continue
-        node=$(echo "$line" | awk '{print $7}')
-        status=$(echo "$line" | awk '{print $3}')
-        [[ -z "$node" || "$node" == "<none>" ]] && continue
-        # Only count Running or ContainerCreating to show change
-        [[ "$status" != "Running" && "$status" != "ContainerCreating" ]] && continue
-
-        pool="${node_pool[$node]:-unknown}"
-        if [[ "$pool" == "spot" ]]; then spot=$((spot + 1)); elif [[ "$pool" == "reserved" ]]; then res=$((res + 1)); fi
-        total=$((total + 1))
-    done <<< "$pods"
-    echo "$spot $res $total"
-}
-
-print_stats() {
-    local label=$1
-    local spot res total
-    read -r spot res total <<< "$(get_distribution)"
-    
-    echo -e "\n${CYAN}DISTRIBUTION STATE: $label${NC}"
-    echo "------------------------------------------------------------"
-    if [[ $total -eq 0 ]]; then
-        echo "| No active pods found in namespace $NAMESPACE"
+    if [[ -z "$pods" ]]; then
+        echo -e "  ${DIM}  (no pods found in namespace $NAMESPACE)${NC}"
     else
-        local spot_pct=$(awk "BEGIN {printf \"%.1f\", ($spot/$total)*100}")
-        local res_pct=$(awk "BEGIN {printf \"%.1f\", ($res/$total)*100}")
-        printf "| %-15s | %-10s | %-10s |\n" "Node Pool" "Pod Count" "Percentage"
-        echo "------------------------------------------------------------"
-        printf "| %-15s | %-10d | %-10s%% |\n" "Spot (Target 70%)" "$spot" "$spot_pct"
-        printf "| %-15s | %-10d | %-10s%% |\n" "Reserved (30%)" "$res" "$res_pct"
+        # Column header
+        echo ""
+        printf "  ${BOLD}  %-42s → %-30s → %-10s${NC}\n" "POD NAME" "NODE" "POOL"
+        echo -e "  ${DIM}  ──────────────────────────────────────────────────────────────────────────────────${NC}"
+
+        while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            local pod_name pod_status pod_node pod_pool
+
+            pod_name=$(echo "$line" | awk '{print $1}')
+            pod_status=$(echo "$line" | awk '{print $3}')
+            pod_node=$(echo "$line" | awk '{print $7}')
+
+            total=$((total + 1))
+
+            if [[ -z "$pod_node" || "$pod_node" == "<none>" ]]; then
+                pod_pool="(pending)"
+                pending=$((pending + 1))
+                printf "  ${RED}  %-42s → %-30s → %-10s${NC}\n" "$pod_name" "<pending>" "$pod_pool"
+            else
+                pod_pool="${node_pool[$pod_node]:-unknown}"
+                if [[ "$pod_pool" == "spot" ]]; then
+                    spot=$((spot + 1))
+                    printf "  ${GREEN}  %-42s → %-30s → %-10s${NC}\n" "$pod_name" "$pod_node" "🟢 spot"
+                elif [[ "$pod_pool" == "reserved" ]]; then
+                    res=$((res + 1))
+                    printf "  ${BLUE}  %-42s → %-30s → %-10s${NC}\n" "$pod_name" "$pod_node" "🔵 reserved"
+                else
+                    other=$((other + 1))
+                    printf "  ${YELLOW}  %-42s → %-30s → %-10s${NC}\n" "$pod_name" "$pod_node" "⚪ $pod_pool"
+                fi
+            fi
+        done <<< "$pods"
     fi
-    echo "------------------------------------------------------------"
+
+    # Summary table
+    echo ""
+    echo -e "  ${WHITE}${BOLD}  SUMMARY${NC}"
+    echo -e "  ${DIM}  ┌──────────────────────┬───────────┬────────────┐${NC}"
+    printf "  ${DIM}  │${NC} ${BOLD}%-20s${NC} ${DIM}│${NC} ${BOLD}%-9s${NC} ${DIM}│${NC} ${BOLD}%-10s${NC} ${DIM}│${NC}\n" "Pool" "Count" "Percentage"
+    echo -e "  ${DIM}  ├──────────────────────┼───────────┼────────────┤${NC}"
+
+    local scheduled=$((spot + res + other))
+    if [[ $scheduled -gt 0 ]]; then
+        local spot_pct res_pct
+        spot_pct=$(awk "BEGIN {printf \"%.1f\", ($spot/$scheduled)*100}")
+        res_pct=$(awk "BEGIN {printf \"%.1f\", ($res/$scheduled)*100}")
+        printf "  ${DIM}  │${NC} ${GREEN}%-20s${NC} ${DIM}│${NC} ${GREEN}%-9d${NC} ${DIM}│${NC} ${GREEN}%-9s%%${NC} ${DIM}│${NC}\n" "🟢 Spot (target 70%)" "$spot" "$spot_pct"
+        printf "  ${DIM}  │${NC} ${BLUE}%-20s${NC} ${DIM}│${NC} ${BLUE}%-9d${NC} ${DIM}│${NC} ${BLUE}%-9s%%${NC} ${DIM}│${NC}\n" "🔵 Reserved (tgt 30%)" "$res" "$res_pct"
+    else
+        printf "  ${DIM}  │${NC} %-20s ${DIM}│${NC} %-9d ${DIM}│${NC} %-10s ${DIM}│${NC}\n" "🟢 Spot (target 70%)" "0" "—"
+        printf "  ${DIM}  │${NC} %-20s ${DIM}│${NC} %-9d ${DIM}│${NC} %-10s ${DIM}│${NC}\n" "🔵 Reserved (tgt 30%)" "0" "—"
+    fi
+
+    if [[ $pending -gt 0 ]]; then
+        printf "  ${DIM}  │${NC} ${RED}%-20s${NC} ${DIM}│${NC} ${RED}%-9d${NC} ${DIM}│${NC} ${RED}%-10s${NC} ${DIM}│${NC}\n" "⏳ Pending" "$pending" "—"
+    fi
+    if [[ $other -gt 0 ]]; then
+        printf "  ${DIM}  │${NC} ${YELLOW}%-20s${NC} ${DIM}│${NC} ${YELLOW}%-9d${NC} ${DIM}│${NC} ${YELLOW}%-10s${NC} ${DIM}│${NC}\n" "⚪ Unlabeled/Other" "$other" "—"
+    fi
+
+    echo -e "  ${DIM}  ├──────────────────────┼───────────┼────────────┤${NC}"
+    printf "  ${DIM}  │${NC} ${BOLD}%-20s${NC} ${DIM}│${NC} ${BOLD}%-9d${NC} ${DIM}│${NC} ${BOLD}%-10s${NC} ${DIM}│${NC}\n" "TOTAL" "$total" "100%"
+    echo -e "  ${DIM}  └──────────────────────┴───────────┴────────────┘${NC}"
+    echo ""
 }
+
+#==============================================================================
+# WAIT HELPERS
+#==============================================================================
 
 wait_for_pods() {
     local target=$1
-    echo -ne "${CYAN}[WAIT]${NC} Scaling to $target pods "
-    local timeout=180 elapsed=0
+    local timeout=${2:-180}
+    echo -ne "${CYAN}  ⏳ [WAIT]${NC} Waiting for $target Running pod(s) "
+    local elapsed=0
     while [ $elapsed -lt $timeout ]; do
-        local running=$($KUBECTL_CMD get pods -n "$NAMESPACE" -l "$APP_LABEL" --no-headers | grep -c "Running" || true)
-        if [ "$running" -eq "$target" ]; then echo -e " ${GREEN}Done!${NC}"; return 0; fi
-        echo -ne "."; sleep 3; elapsed=$((elapsed + 3))
+        local running
+        running=$($KUBECTL_CMD get pods -n "$NAMESPACE" -l "$APP_LABEL" --no-headers 2>/dev/null | grep -c "Running" || true)
+        if [ "$running" -ge "$target" ]; then
+            echo -e " ${GREEN}✔ Ready!${NC}"
+            return 0
+        fi
+        echo -ne "."
+        sleep 3
+        elapsed=$((elapsed + 3))
     done
-    echo -e " ${RED}Timeout!${NC}"; return 1
+    echo -e " ${RED}✖ Timeout after ${timeout}s!${NC}"
+    return 1
+}
+
+wait_for_nodes_ready() {
+    local nodes="$@"
+    echo -ne "${CYAN}  ⏳ [WAIT]${NC} Waiting for node(s) to become Ready "
+    local timeout=120 elapsed=0
+    while [ $elapsed -lt $timeout ]; do
+        local all_ready=true
+        for node in $nodes; do
+            local status
+            status=$($KUBECTL_CMD get node "$node" --no-headers 2>/dev/null | awk '{print $2}' || echo "NotFound")
+            if [[ "$status" != "Ready" ]]; then all_ready=false; break; fi
+        done
+        if $all_ready; then echo -e " ${GREEN}✔ Ready!${NC}"; return 0; fi
+        echo -ne "."
+        sleep 3
+        elapsed=$((elapsed + 3))
+    done
+    echo -e " ${RED}✖ Timeout!${NC}"
+    return 1
 }
 
 #==============================================================================
-# MAIN FLOW
+#                         M A I N   D E M O   F L O W
 #==============================================================================
-clear
-echo -e "${GREEN}   70/30 WORKLOAD DISTRIBUTION - EXPERT VISIBILITY DEMO${NC}"
-echo "=============================================================================="
 
-# 1. Baseline
-header "1. INITIAL STATE"
-print_stats "BASELINE (6 REPLICAS)"
-explain "The cluster starts with 6 pods. Due to weights (70 Spot / 30 Reserved) 
-and 3 available nodes, the scheduler maintains a ~66/33 split as the closest 
-approximation of our 70/30 goal."
+clear
+echo ""
+echo -e "${GREEN}${BOLD}╔══════════════════════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}${BOLD}║                                                                              ║${NC}"
+echo -e "${GREEN}${BOLD}║     🚀  KUBERNETES 70/30 WORKLOAD DISTRIBUTION — INTERVIEW DEMO  🚀         ║${NC}"
+echo -e "${GREEN}${BOLD}║                                                                              ║${NC}"
+echo -e "${GREEN}${BOLD}║  This demo walks through 14 scenarios proving how the Kubernetes scheduler   ║${NC}"
+echo -e "${GREEN}${BOLD}║  distributes pods across Spot (70%) and Reserved (30%) node pools, and how   ║${NC}"
+echo -e "${GREEN}${BOLD}║  the system reacts to scaling, failures, and pool removal/restoration.       ║${NC}"
+echo -e "${GREEN}${BOLD}║                                                                              ║${NC}"
+echo -e "${GREEN}${BOLD}║  ⚠  70/30 is approximate (preferred affinity), not exact.                    ║${NC}"
+echo -e "${GREEN}${BOLD}║                                                                              ║${NC}"
+echo -e "${GREEN}${BOLD}╚══════════════════════════════════════════════════════════════════════════════╝${NC}"
+echo ""
+
+info "Cluster: $CLUSTER_NAME | Namespace: $NAMESPACE | Target: $APP_LABEL"
+info "Starting demo with $(date '+%Y-%m-%d %H:%M:%S')"
+
+echo ""
+echo -e "${WHITE}${BOLD}  Cluster Node Inventory:${NC}"
+$KUBECTL_CMD get nodes -o custom-columns="NAME:.metadata.name,STATUS:.status.conditions[-1].type,POOL:.metadata.labels.pool,FRONTEND-TIER:.metadata.labels.tier/frontend" --no-headers 2>/dev/null | while IFS= read -r line; do
+    echo -e "    $line"
+done
+echo ""
+
 pause
 
-# 2. High-Load Scaling
-header "2. HIGH-LOAD SCALING (DIFFERENTIATION)"
-print_stats "BEFORE (6 PODS)"
-action "Scaling frontend to 20 replicas..."
+#==============================================================================
+# SCENARIO 1: ADD ONE POD
+#==============================================================================
+
+header "ADD ONE POD"
+
+section_header "BEFORE STATE"
+info "Current replica count: $($KUBECTL_CMD get deployment/frontend -n "$NAMESPACE" -o jsonpath='{.spec.replicas}')"
+show_distribution "BEFORE — Baseline"
+
+section_header "EXECUTING"
+action "Scaling frontend from current replicas to +1 (7 total)..."
+$KUBECTL_CMD scale deployment/frontend -n "$NAMESPACE" --replicas=7
+wait_for_pods 7
+
+section_header "AFTER STATE"
+show_distribution "AFTER — 7 Replicas (+1 Pod Added)"
+
+explain "When adding a single pod, the Kubernetes scheduler evaluates all
+eligible nodes using the preferredDuringScheduling weights.
+The new pod PREFERS Spot (weight 70) over Reserved (weight 30),
+so it will most likely land on a Spot node.
+70/30 is approximate — not exact per-pod, but trends over scale."
+
+pause
+
+#==============================================================================
+# SCENARIO 2: ADD MULTIPLE PODS
+#==============================================================================
+
+header "ADD MULTIPLE PODS"
+
+section_header "BEFORE STATE"
+show_distribution "BEFORE — 7 Replicas"
+
+section_header "EXECUTING"
+action "Scaling frontend to 20 replicas (+13 pods)..."
 $KUBECTL_CMD scale deployment/frontend -n "$NAMESPACE" --replicas=20
 wait_for_pods 20
-print_stats "AFTER SCALE-UP (20 PODS)"
-reaction "Kubernetes Scheduler detected the scale-up event. It calculated the score 
-for each node and correctly allocated 14 pods to Spot and 6 to Reserved. 
-Observe how clearly the 70/30 ratio (14/6) emerges at higher scale!"
+
+section_header "AFTER STATE"
+show_distribution "AFTER — 20 Replicas (+13 Pods Added)"
+
+explain "With 13 new pods, the 70/30 ratio becomes clearly visible.
+The scheduler scores each node: Spot nodes get +70 affinity
+bonus, Reserved nodes get +30. Combined with topology spread
+(maxSkew: 1), about 14 land on Spot and 6 on Reserved.
+At higher scale, the 70/30 distribution is more pronounced."
+
 pause
 
-# 3. Bulk Scale Down
-header "3. BULK SCALE DOWN (REACTION)"
-print_stats "BEFORE (20 PODS)"
-action "Scaling back to 8 replicas..."
+#==============================================================================
+# SCENARIO 3: REMOVE ONE POD
+#==============================================================================
+
+header "REMOVE ONE POD"
+
+section_header "BEFORE STATE"
+show_distribution "BEFORE — 20 Replicas"
+
+section_header "EXECUTING"
+action "Deleting 1 random pod manually..."
+POD_TO_DELETE=$($KUBECTL_CMD get pods -n "$NAMESPACE" -l "$APP_LABEL" -o name | head -n 1)
+info "Deleting: $POD_TO_DELETE"
+$KUBECTL_CMD delete "$POD_TO_DELETE" -n "$NAMESPACE" --now
+wait_for_pods 20
+
+section_header "AFTER STATE"
+show_distribution "AFTER — Pod Deleted & Replaced"
+
+explain "When a pod is deleted, the ReplicaSet controller detects that
+the actual count (19) is below desired (20). It immediately
+creates a replacement pod. The scheduler places the new pod
+using the same 70/30 affinity weights — self-healing in action."
+
+pause
+
+#==============================================================================
+# SCENARIO 4: REMOVE MULTIPLE PODS
+#==============================================================================
+
+header "REMOVE MULTIPLE PODS"
+
+section_header "BEFORE STATE"
+show_distribution "BEFORE — 20 Replicas"
+
+section_header "EXECUTING"
+action "Deleting 5 pods simultaneously..."
+PODS_TO_DELETE=$($KUBECTL_CMD get pods -n "$NAMESPACE" -l "$APP_LABEL" -o name | head -n 5)
+info "Deleting: $(echo $PODS_TO_DELETE | tr '\n' ' ')"
+$KUBECTL_CMD delete $PODS_TO_DELETE -n "$NAMESPACE" --now
+wait_for_pods 20
+
+section_header "AFTER STATE"
+show_distribution "AFTER — 5 Pods Deleted & Replaced"
+
+explain "Deleting multiple pods triggers a batch recreation by the
+ReplicaSet controller. All 5 replacement pods are scheduled
+in parallel. The scheduler independently scores each one,
+maintaining the 70/30 preference across the new batch.
+This simulates a partial failure recovery scenario."
+
+pause
+
+#==============================================================================
+# (Transition: scale down before node scenarios)
+#==============================================================================
+
+action "Scaling back to 8 replicas to prepare for node scenarios..."
 $KUBECTL_CMD scale deployment/frontend -n "$NAMESPACE" --replicas=8
 wait_for_pods 8
-print_stats "AFTER SCALE-DOWN (8 PODS)"
-reaction "System reacted to the reduction by terminating pods. The controller 
-ensured that the remaining pods still respect the node affinity preference, 
-keeping the ratio relatively stable."
-pause
 
-# 4. Multi-Node Expansion
-header "4. MULTI-NODE CHOS (ADD 2 AGENTS)"
-print_stats "BEFORE NODE ADD"
-action "Adding 'extra-agent-1' and 'extra-agent-2' to cluster..."
-$K3D_CMD node create "extra-agent-1" --cluster "$CLUSTER_NAME" > /dev/null
-$K3D_CMD node create "extra-agent-2" --cluster "$CLUSTER_NAME" > /dev/null
-$KUBECTL_CMD wait --for=condition=Ready nodes k3d-three-tier-extra-agent-1 k3d-three-tier-extra-agent-2 --timeout=60s
-print_stats "AFTER NODE ADD (0 PODS ON NEW NODES)"
-explain "Look at the table! Even though we have 2 new nodes, the Pod Count 
-has NOT changed on the existing pools. Kubernetes will not move running 
-pods voluntarily (IgnoredDuringExecution) until we label them and trigger a rebalance."
-pause
+#==============================================================================
+# SCENARIO 5: ADD ONE NODE
+#==============================================================================
 
-# 5. Rebalancing
-header "5. BATCH LABELING & REBALANCE (REACTION)"
-action "Labeling both extra nodes as 'pool=spot'..."
-$KUBECTL_CMD label nodes k3d-three-tier-extra-agent-1 k3d-three-tier-extra-agent-2 pool=spot tier/frontend=true --overwrite
-action "Triggering rollout to force re-distribution..."
+header "ADD ONE NODE TO CLUSTER"
+
+section_header "BEFORE STATE"
+show_distribution "BEFORE — 8 Replicas"
+info "Current nodes:"
+$KUBECTL_CMD get nodes -o custom-columns="NAME:.metadata.name,POOL:.metadata.labels.pool" --no-headers 2>/dev/null | while IFS= read -r l; do echo "    $l"; done
+
+section_header "EXECUTING"
+action "Adding 'extra-agent-1' to cluster..."
+$K3D_CMD node create "extra-agent-1" --cluster "$CLUSTER_NAME" > /dev/null 2>&1
+wait_for_nodes_ready "k3d-three-tier-extra-agent-1"
+action "Labeling new node as pool=spot, tier/frontend=true..."
+$KUBECTL_CMD label node k3d-three-tier-extra-agent-1 pool=spot tier/frontend=true --overwrite
+
+section_header "AFTER STATE (before rebalance)"
+show_distribution "AFTER NODE ADD — No Rebalance Yet"
+
+info "Notice: pods did NOT move to the new node automatically."
+info "Triggering rollout restart to force redistribution..."
 $KUBECTL_CMD rollout restart deployment/frontend -n "$NAMESPACE"
 wait_for_pods 8
-print_stats "AFTER REBALANCE (EXPANDED SPOT CAPACITY)"
-reaction "With 4 Spot nodes now available, the scheduler spread the 70% 
-workload across all of them. The system reacted to the new 'pool=spot' 
-labels by moving pods to utilize the increased capacity."
+
+section_header "AFTER STATE (after rebalance)"
+show_distribution "AFTER REBALANCE — With New Spot Node"
+
+explain "Adding a node does NOT move existing pods (Kubernetes uses
+IgnoredDuringExecution for running pods). Only a rollout
+restart or new scaling event triggers rescheduling. After
+the restart, pods spread across all available nodes using
+the 70/30 weights. More Spot nodes = more Spot capacity."
+
 pause
 
-# 6. Multi-Node Failure
-header "6. MULTI-NODE FAILURE (RECOVERY)"
-print_stats "BEFORE NODE FAILURE"
-action "Deleting both extra nodes simultaneously (Simulating Rack Failure)..."
-$K3D_CMD node delete k3d-three-tier-extra-agent-1 k3d-three-tier-extra-agent-2 > /dev/null
+#==============================================================================
+# SCENARIO 6: ADD MULTIPLE NODES
+#==============================================================================
+
+header "ADD MULTIPLE NODES TO CLUSTER"
+
+section_header "BEFORE STATE"
+show_distribution "BEFORE — With extra-agent-1"
+
+section_header "EXECUTING"
+action "Adding 'extra-agent-2' and 'extra-agent-3' to cluster..."
+$K3D_CMD node create "extra-agent-2" --cluster "$CLUSTER_NAME" > /dev/null 2>&1
+$K3D_CMD node create "extra-agent-3" --cluster "$CLUSTER_NAME" > /dev/null 2>&1
+wait_for_nodes_ready "k3d-three-tier-extra-agent-2 k3d-three-tier-extra-agent-3"
+action "Labeling extra-agent-2 as pool=spot, extra-agent-3 as pool=reserved..."
+$KUBECTL_CMD label node k3d-three-tier-extra-agent-2 pool=spot tier/frontend=true --overwrite
+$KUBECTL_CMD label node k3d-three-tier-extra-agent-3 pool=reserved tier/frontend=true --overwrite
+
+action "Triggering rollout to redistribute..."
+$KUBECTL_CMD rollout restart deployment/frontend -n "$NAMESPACE"
 wait_for_pods 8
-print_stats "AFTER NODE FAILURE (SELF-HEALED)"
-reaction "Total Resilience! When the nodes failed, the pods went into 'Terminating' 
-on the dead nodes. The ReplicaSet immediately reacted by spinning up replacements 
-on the 3 surviving nodes, maintaining the 70/30 distribution."
+
+section_header "AFTER STATE"
+show_distribution "AFTER — 2 More Nodes Added + Rebalanced"
+
+explain "Two new nodes were added: one Spot, one Reserved. After
+the rollout restart, pods are redistributed with the updated
+node topology. The scheduler now has more capacity in both
+pools, spreading load more evenly within each pool.
+Key: more Spot nodes pull more pods (weight 70 each)."
+
 pause
 
-# 7. Self-Healing
-header "7. DELETE RANDOM PODS"
-action "Deleting 2 pods manually..."
-PODS=$($KUBECTL_CMD get pods -n "$NAMESPACE" -l "$APP_LABEL" -o name | head -n 2)
-$KUBECTL_CMD delete $PODS -n "$NAMESPACE" --now
+#==============================================================================
+# SCENARIO 7: REMOVE ONE NODE
+#==============================================================================
+
+header "REMOVE ONE NODE FROM CLUSTER"
+
+section_header "BEFORE STATE"
+show_distribution "BEFORE — With Extra Nodes"
+info "Current nodes:"
+$KUBECTL_CMD get nodes -o custom-columns="NAME:.metadata.name,POOL:.metadata.labels.pool" --no-headers 2>/dev/null | while IFS= read -r l; do echo "    $l"; done
+
+section_header "EXECUTING"
+action "Deleting extra-agent-1 (Spot node)..."
+$K3D_CMD node delete k3d-three-tier-extra-agent-1 > /dev/null 2>&1 || true
+sleep 5
 wait_for_pods 8
-print_stats "AFTER POD DELETION"
-reaction "The Deployment controller detected a deviation from the desired state (8) 
-and reacted by instantly recreating the pods. The Scheduler ensured they landed 
-back on appropriate nodes."
+
+section_header "AFTER STATE"
+show_distribution "AFTER — 1 Spot Node Removed"
+
+explain "When a node is deleted, all pods on that node go Terminating.
+The ReplicaSet controller recreates them on surviving nodes.
+Since we lost a Spot node, the remaining Spot nodes absorb
+the displaced pods. The 70/30 ratio is maintained because
+the affinity weights still guide scheduling decisions."
+
 pause
 
-# 8. Reserved Pool Failure
-header "8. RESERVED POOL ISOLATION"
-print_stats "BEFORE RESERVED FAILURE"
-action "Removing 'pool=reserved' label from all nodes..."
-$KUBECTL_CMD label node --selector=pool=reserved pool- --overwrite > /dev/null
+#==============================================================================
+# SCENARIO 8: REMOVE MULTIPLE NODES
+#==============================================================================
+
+header "REMOVE MULTIPLE NODES FROM CLUSTER"
+
+section_header "BEFORE STATE"
+show_distribution "BEFORE — Current State"
+
+section_header "EXECUTING"
+action "Deleting extra-agent-2 AND extra-agent-3 simultaneously (rack failure!)..."
+$K3D_CMD node delete k3d-three-tier-extra-agent-2 > /dev/null 2>&1 || true
+$K3D_CMD node delete k3d-three-tier-extra-agent-3 > /dev/null 2>&1 || true
+sleep 5
+wait_for_pods 8
+
+section_header "AFTER STATE"
+show_distribution "AFTER — 2 Nodes Removed (Rack Failure Simulated)"
+
+explain "Simultaneous loss of 2 nodes simulates a rack failure. Pods
+that were running on those nodes are terminated and recreated
+on the 3 original surviving nodes. The cluster self-heals
+automatically. The 70/30 distribution is restored across the
+remaining Spot and Reserved nodes — total resilience!"
+
+pause
+
+#==============================================================================
+# SCENARIO 9: REMOVE SPOT POOL
+#==============================================================================
+
+header "REMOVE SPOT POOL — What Happens?"
+
+section_header "BEFORE STATE"
+show_distribution "BEFORE — Normal 70/30 Distribution"
+
+section_header "EXECUTING"
+action "Removing 'pool=spot' label from ALL Spot nodes..."
+$KUBECTL_CMD label nodes --selector=pool=spot pool- --overwrite > /dev/null
+
+action "Forcing reschedule with rollout restart..."
+$KUBECTL_CMD rollout restart deployment/frontend -n "$NAMESPACE"
+wait_for_pods 8
+
+section_header "AFTER STATE"
+show_distribution "AFTER — Spot Pool Removed (100% Reserved Fallback)"
+
+explain "With ALL Spot labels removed, no node satisfies the 'pool=spot'
+preferred match. The hard requirement still needs pool=spot OR
+pool=reserved. Since only Reserved nodes remain valid, ALL pods
+fail over to the Reserved pool. This is the power of preferred
+affinity: the system degrades gracefully instead of crashing.
+Pods moved to RESERVED because Spot nodes no longer exist."
+
+pause
+
+#==============================================================================
+# SCENARIO 10: RESTORE SPOT POOL
+#==============================================================================
+
+header "RESTORE SPOT POOL — What Happens?"
+
+section_header "BEFORE STATE"
+show_distribution "BEFORE — All Pods on Reserved"
+
+section_header "EXECUTING"
+action "Restoring 'pool=spot' label to Spot nodes..."
+AGENT_LIST=$($KUBECTL_CMD get nodes --no-headers -o name | grep agent | sort)
+i=0
+for n in $AGENT_LIST; do
+    if [ $i -gt 0 ]; then
+        $KUBECTL_CMD label "$n" pool=spot --overwrite
+        info "Labeled $n → pool=spot"
+    fi
+    i=$((i + 1))
+done
+
+action "Forcing reschedule with rollout restart..."
+$KUBECTL_CMD rollout restart deployment/frontend -n "$NAMESPACE"
+wait_for_pods 8
+
+section_header "AFTER STATE"
+show_distribution "AFTER — Spot Pool Restored (70/30 Back)"
+
+explain "Once Spot labels are restored, the scheduler can again see
+nodes with pool=spot. After a rollout restart, all pods are
+rescheduled using the original 70/30 weights. Pods migrate
+BACK to Spot nodes because the weight 70 preference kicks
+in again. The system fully recovers to normal distribution."
+
+pause
+
+#==============================================================================
+# SCENARIO 11: REMOVE RESERVED NODE
+#==============================================================================
+
+header "REMOVE RESERVED NODE — What Happens?"
+
+section_header "BEFORE STATE"
+show_distribution "BEFORE — Normal Distribution"
+
+section_header "EXECUTING"
+action "Removing 'pool=reserved' label from all Reserved nodes..."
+$KUBECTL_CMD label nodes --selector=pool=reserved pool- --overwrite > /dev/null
+
 action "Forcing reschedule..."
 $KUBECTL_CMD rollout restart deployment/frontend -n "$NAMESPACE"
 wait_for_pods 8
-print_stats "AFTER RESERVED FAILURE (100% SPOT FALLBACK)"
-reaction "The system reacted to the loss of Reserved nodes by failing over 
-entirely to the Spot pool. Because the affinity is 'Preferred' and the 
-required label is still present, the system remains 100% operational."
+
+section_header "AFTER STATE"
+show_distribution "AFTER — Reserved Pool Removed (100% Spot Fallback)"
+
+explain "With no Reserved nodes available, ALL pods move to the Spot
+pool. The 30% Reserved allocation cannot be honored because
+no node carries the pool=reserved label. The system stays
+100% operational on Spot — availability over precision.
+This proves the soft-preference model: it bends, doesn't break."
+
 pause
 
-# 9. Spot Pool Failure
-header "9. SPOT POOL ISOLATION"
-print_stats "BEFORE SPOT FAILURE"
-action "Removing 'pool=spot' label from all nodes..."
-$KUBECTL_CMD label nodes --selector=pool=spot pool- --overwrite > /dev/null
-action "Restoring Reserved pool to first agent..."
+#==============================================================================
+# SCENARIO 12: RESTORE RESERVED NODE
+#==============================================================================
+
+header "RESTORE RESERVED NODE — What Happens?"
+
+section_header "BEFORE STATE"
+show_distribution "BEFORE — All Pods on Spot"
+
+section_header "EXECUTING"
+action "Restoring 'pool=reserved' to the first agent node..."
 FIRST_AGENT=$($KUBECTL_CMD get nodes --no-headers -o name | grep agent | head -n 1)
 $KUBECTL_CMD label "$FIRST_AGENT" pool=reserved --overwrite
+info "Labeled $FIRST_AGENT → pool=reserved"
+
 action "Forcing reschedule..."
 $KUBECTL_CMD rollout restart deployment/frontend -n "$NAMESPACE"
 wait_for_pods 8
-print_stats "AFTER SPOT FAILURE (100% RESERVED FALLBACK)"
-reaction "With no Spot nodes available, the Scheduler reacted by placing 
-all 8 pods on the single available Reserved node. Availability is preserved!"
+
+section_header "AFTER STATE"
+show_distribution "AFTER — Reserved Pool Restored (70/30 Back)"
+
+explain "With the Reserved label restored on a node, the scheduler
+again respects the 70/30 weight split. After the rollout
+restart, ~30% of pods move to the Reserved node while ~70%
+remain on Spot. The system self-heals back to the intended
+distribution without any manual pod placement."
+
 pause
 
-# 10. Full Pool Removal
-header "10. FULL BLOCKAGE (REACTION)"
-action "Removing ALL valid labels (pool & tier)..."
-$KUBECTL_CMD label nodes --all pool- tier/frontend- --overwrite > /dev/null
-action "Scaling to 10 pods..."
+#==============================================================================
+# SCENARIO 13: REMOVE BOTH POOLS
+#==============================================================================
+
+header "REMOVE BOTH POOLS — Complete Blockage"
+
+section_header "BEFORE STATE"
+show_distribution "BEFORE — Normal Distribution"
+
+section_header "EXECUTING"
+action "Removing ALL pool AND tier labels from every node..."
+$KUBECTL_CMD label nodes --all pool- tier/frontend- --overwrite > /dev/null 2>&1 || true
+
+action "Scaling to 10 replicas to force new scheduling..."
 $KUBECTL_CMD scale deployment/frontend -n "$NAMESPACE" --replicas=10
-sleep 5
-PENDING=$($KUBECTL_CMD get pods -n "$NAMESPACE" -l "$APP_LABEL" | grep -c Pending || echo "0")
-print_stats "AFTER FULL BLOCKAGE"
-reaction "The system is now in a BLOCKED state. 8 pods stay on their nodes (running), 
-but the 2 new pods are PENDING. Why? Because the Scheduler reacted to the 
-Hard Requirement (requiredDuringScheduling) and found NO nodes with the 'tier/frontend' label."
+sleep 8
+
+section_header "AFTER STATE"
+show_distribution "AFTER — Both Pools Removed (BLOCKED)"
+
+info "Checking for Pending pods..."
+PENDING=$($KUBECTL_CMD get pods -n "$NAMESPACE" -l "$APP_LABEL" --no-headers 2>/dev/null | grep -c "Pending" || echo "0")
+if [[ "$PENDING" -gt 0 ]]; then
+    fail "$PENDING pod(s) are PENDING — no valid node exists!"
+    info "Pod status detail:"
+    $KUBECTL_CMD get pods -n "$NAMESPACE" -l "$APP_LABEL" --no-headers 2>/dev/null | grep "Pending" | while IFS= read -r l; do echo -e "    ${RED}$l${NC}"; done
+else
+    info "Existing pods still running (IgnoredDuringExecution), but no new pods can schedule."
+fi
+
+explain "With BOTH pool AND tier/frontend labels removed, the hard
+requirement (requiredDuringScheduling) blocks new pods:
+  - No node has tier/frontend=true → FAIL
+  - No node has pool=spot or pool=reserved → FAIL
+Existing pods keep running (IgnoredDuringExecution) but new
+pods go PENDING. This is the worst-case scenario.
+Pods are pending because NO valid nodes exist for scheduling."
+
 pause
 
-# Cleanup
-header "CLEANING UP"
-action "Restoring baseline cluster state..."
+#==============================================================================
+# SCENARIO 14: RESTORE BOTH POOLS
+#==============================================================================
+
+header "RESTORE BOTH POOLS — Full Recovery"
+
+section_header "BEFORE STATE"
+show_distribution "BEFORE — Blocked State"
+
+section_header "EXECUTING"
+action "Restoring ALL tier labels on every node..."
 $KUBECTL_CMD label nodes --all tier/frontend=true tier/backend=true tier/db=true --overwrite > /dev/null
+
+action "Restoring pool labels (1st agent=reserved, rest=spot)..."
 AGENT_LIST=$($KUBECTL_CMD get nodes --no-headers -o name | grep agent | sort)
-i=0; for n in $AGENT_LIST; do
-  if [ $i -eq 0 ]; then $KUBECTL_CMD label "$n" pool=reserved --overwrite
-  else $KUBECTL_CMD label "$n" pool=spot --overwrite; fi
-  i=$((i+1))
+i=0
+for n in $AGENT_LIST; do
+    if [ $i -eq 0 ]; then
+        $KUBECTL_CMD label "$n" pool=reserved --overwrite
+        info "Labeled $n → pool=reserved"
+    else
+        $KUBECTL_CMD label "$n" pool=spot --overwrite
+        info "Labeled $n → pool=spot"
+    fi
+    i=$((i + 1))
 done
+
+action "Forcing full reschedule..."
+$KUBECTL_CMD rollout restart deployment/frontend -n "$NAMESPACE"
+wait_for_pods 10
+
+section_header "AFTER STATE"
+show_distribution "AFTER — Both Pools Restored (Full Recovery)"
+
+explain "With all labels restored, the hard requirements are satisfied
+again. Pending pods can now be scheduled. After the rollout
+restart, ALL pods are redistributed with the 70/30 weights.
+The cluster has fully self-healed from the worst-case scenario
+back to normal operations. Total resilience demonstrated!"
+
+pause
+
+#==============================================================================
+# CLEANUP — RESTORE BASELINE
+#==============================================================================
+
+echo ""
+echo -e "${MAGENTA}╔══════════════════════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${MAGENTA}║  🧹 CLEANUP — RESTORING BASELINE                                           ║${NC}"
+echo -e "${MAGENTA}╚══════════════════════════════════════════════════════════════════════════════╝${NC}"
+echo ""
+
+action "Restoring all labels..."
+$KUBECTL_CMD label nodes --all tier/frontend=true tier/backend=true tier/db=true --overwrite > /dev/null
+
+AGENT_LIST=$($KUBECTL_CMD get nodes --no-headers -o name | grep agent | sort)
+i=0
+for n in $AGENT_LIST; do
+    if [ $i -eq 0 ]; then
+        $KUBECTL_CMD label "$n" pool=reserved --overwrite
+    else
+        $KUBECTL_CMD label "$n" pool=spot --overwrite
+    fi
+    i=$((i + 1))
+done
+
+action "Scaling back to 6 replicas..."
 $KUBECTL_CMD scale deployment/frontend -n "$NAMESPACE" --replicas=6
 wait_for_pods 6
+
+show_distribution "FINAL — Baseline Restored"
+
 ok "Cluster restored to baseline."
-echo -e "\n${GREEN}DEMO COMPLETE${NC}"
+echo ""
+echo -e "${GREEN}${BOLD}╔══════════════════════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}${BOLD}║                                                                              ║${NC}"
+echo -e "${GREEN}${BOLD}║   ✅  DEMO COMPLETE — ALL 14 SCENARIOS DEMONSTRATED SUCCESSFULLY  ✅        ║${NC}"
+echo -e "${GREEN}${BOLD}║                                                                              ║${NC}"
+echo -e "${GREEN}${BOLD}║   Key Takeaways:                                                             ║${NC}"
+echo -e "${GREEN}${BOLD}║   • 70/30 is a scheduler PREFERENCE, not an exact guarantee                  ║${NC}"
+echo -e "${GREEN}${BOLD}║   • The ratio becomes more accurate at higher replica counts                 ║${NC}"
+echo -e "${GREEN}${BOLD}║   • Preferred affinity degrades gracefully under failures                    ║${NC}"
+echo -e "${GREEN}${BOLD}║   • Hard requirements (required affinity) block pods when unsatisfied        ║${NC}"
+echo -e "${GREEN}${BOLD}║   • The system self-heals: ReplicaSet + Scheduler = auto-recovery            ║${NC}"
+echo -e "${GREEN}${BOLD}║                                                                              ║${NC}"
+echo -e "${GREEN}${BOLD}╚══════════════════════════════════════════════════════════════════════════════╝${NC}"
+echo ""
