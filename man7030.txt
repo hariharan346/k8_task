@@ -1,0 +1,64 @@
+### 📋 Demo Checklist: Proving 70/30 Distribution
+
+I use these steps to show exactly how the 70/30 split and self-healing hold up in a live demo.
+
+**Step 0 — Get the view ready**
+Open two terminals. In the first one, keep a "live view" running so you can watch the pods move:
+```bash
+watch -n 2 '
+echo "=== PODS ==="
+kubectl get pods -n three-tier -o wide
+
+echo ""
+echo "=== DISTRIBUTION ==="
+kubectl get pods -n three-tier -o wide | grep frontend | awk "{print \$7}" | sort | uniq -c
+'
+```
+
+**Step 1 — Baseline: Check the 6-replica state**
+```bash
+kubectl scale deployment frontend -n three-tier --replicas=6
+```
+You should see ~4 pods on Spot nodes and ~2 on Reserved.
+
+**Step 2 — Add pods: See the 70/30 trend**
+```bash
+kubectl scale deployment frontend -n three-tier --replicas=20
+```
+With more pods, the math becomes clearer—roughly 14 land on Spot and 6 on Reserved.
+
+**Step 3 — Self-healing: Delete a pod**
+```bash
+kubectl get pods -n three-tier -l app=frontend --no-headers -o custom-columns=":metadata.name" | shuf -n 1 | xargs kubectl delete pod -n three-tier
+```
+The ReplicaSet will instantly spawn a replacement, and it should land back on an appropriate node based on the affinity rules.
+
+**Step 4 — Node Failure: Drain a Spot node**
+```bash
+kubectl drain k3d-three-tier-agent-1 --ignore-daemonsets --delete-emptydir-data --force
+```
+All pods on that node will terminate and reschedule on the surviving ones.
+
+**Step 5 — Restore & Rebalance**
+```bash
+kubectl uncordon k3d-three-tier-agent-1
+kubectl rollout restart deployment frontend -n three-tier
+```
+Since Kubernetes doesn't move pods just because a node came back online, I use a "rollout restart" to rebalance the cluster.
+
+**Step 6 — Critical: Remove ALL valid nodes**
+```bash
+kubectl drain k3d-three-tier-agent-0 k3d-three-tier-agent-1 k3d-three-tier-agent-2 --ignore-daemonsets --force
+```
+Now, check the pod status:
+```bash
+kubectl get pods -n three-tier
+```
+They will be stuck in "Pending" because I’ve made it impossible for them to find a valid node with the correct labels.
+
+**Step 7 — Full Recovery**
+```bash
+kubectl uncordon k3d-three-tier-agent-0 k3d-three-tier-agent-1 k3d-three-tier-agent-2
+kubectl rollout restart deployment frontend -n three-tier
+```
+Everything returns to the normal 70/30 distribution.
