@@ -71,8 +71,11 @@ spec:
         - name: api
           image: python:3.12-slim
           command: ["python", "-m", "http.server", "8080"]
-          ports:
-            - containerPort: 8080
+          securityContext:
+            runAsUser: 1000
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
           livenessProbe:
             httpGet:
               path: /
@@ -90,3 +93,9 @@ spec:
             limits:
               cpu: 200m
               memory: 128Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

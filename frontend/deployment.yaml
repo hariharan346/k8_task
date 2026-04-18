@@ -69,18 +69,22 @@ spec:
               app: frontend
       containers:
         - name: nginx
-          image: nginx:1.25.4
+          image: nginxinc/nginx-unprivileged:1.25-alpine
           ports:
-            - containerPort: 80
+            - containerPort: 8080
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
           livenessProbe:
             httpGet:
               path: /
-              port: 80
+              port: 8080
             initialDelaySeconds: 5
           readinessProbe:
             httpGet:
               path: /
-              port: 80
+              port: 8080
             initialDelaySeconds: 5
           resources:
             requests:
@@ -89,3 +93,17 @@ spec:
             limits:
               cpu: 200m
               memory: 128Mi
+          volumeMounts:
+            - name: cache
+              mountPath: /var/cache/nginx
+            - name: runtime
+              mountPath: /var/run
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: cache
+          emptyDir: {}
+        - name: runtime
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}

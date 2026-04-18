@@ -65,18 +65,53 @@ kubectl exec -n three-tier deploy/backend -- \
 
 ## 4. Security Enforcement (Kyverno)
 
-### 4a. Blocking Privileged Containers
-```bash
-kubectl run test-priv --image=nginx:1.25.4 -n three-tier \
-  --overrides='{"spec":{"containers":[{"name":"t","image":"nginx:1.25.4","securityContext":{"privileged":true}}]}}'
-```
-**Expected:** The API server will reject the request. This proves the **Admission Controller** is enforcing security baseline policies.
+### 4a. Blocking Weak Security Contexts
+These tests prove that any pod NOT following our hardened profile is rejected by the Admission Controller.
 
-### 4b. Blocking `:latest` Tags
+**Try running as Root:**
 ```bash
-kubectl run test-latest --image=nginx:latest -n three-tier
+kubectl run test-root --image=nginx:1.25.4 -n three-tier \
+  --overrides='{"spec":{"containers":[{"name":"t","image":"nginx:1.25.4","securityContext":{"runAsNonRoot":false}}]}}'
 ```
-**Expected:** Rejected. We enforce strict version pinning (`nginx:1.25.4`) to ensure immutability and stable deployments.
+
+**Try enabling Privilege Escalation:**
+```bash
+kubectl run test-priv-up --image=nginx:1.25.4 -n three-tier \
+  --overrides='{"spec":{"containers":[{"name":"t","image":"nginx:1.25.4","securityContext":{"allowPrivilegeEscalation":true}}]}}'
+```
+
+**Try enabling Writable Root Filesystem:**
+```bash
+kubectl run test-writeable --image=nginx:1.25.4 -n three-tier \
+  --overrides='{"spec":{"containers":[{"name":"t","image":"nginx:1.25.4","securityContext":{"readOnlyRootFilesystem":false}}]}}'
+```
+
+**Expected:** All three will be rejected with a Kyverno error message.
+
+---
+
+## 5. Hardened Runtime Verification
+
+Use these commands to verify that your *running* pods are truly restricted.
+
+### 5a. Verify Non-Root User
+```bash
+# Should show a non-zero UID (e.g., 101 or 1000)
+kubectl exec -n three-tier deploy/frontend -- id
+```
+
+### 5b. Verify Read-Only Root Filesystem
+```bash
+# Try to create a file in a forbidden location
+kubectl exec -n three-tier deploy/frontend -- touch /test.txt
+```
+**Expected:** `touch: /test.txt: Read-only file system`
+
+### 5c. Verify Writable "Scratch" Paths (emptyDir)
+```bash
+# /tmp should be writable because it's an emptyDir volume
+kubectl exec -n three-tier deploy/frontend -- touch /tmp/success.txt && echo "Success"
+```
 
 ---
 

@@ -3,8 +3,8 @@
   "Trivy": {
     "Version": "0.69.3"
   },
-  "ReportID": "019d8a74-52d5-7350-8b54-bb7e91307063",
-  "CreatedAt": "2026-04-14T10:56:12.4372171+05:30",
+  "ReportID": "019da020-4009-7e7c-bbc5-b2904abcdaa7",
+  "CreatedAt": "2026-04-18T15:56:01.3539493+05:30",
   "ArtifactID": "sha256:734ac783f90fd22eeccbedce8f30e26d3a4d45149f2d94f8e7dd18275d10b1c8",
   "ArtifactName": "python:3.12-slim",
   "ArtifactType": "container_image",
@@ -7782,7 +7782,8 @@
             "cbl-mariner": 4,
             "nvd": 3,
             "oracle-oval": 2,
-            "redhat": 2
+            "redhat": 2,
+            "rocky": 2
           },
           "CVSS": {
             "nvd": {
@@ -7798,7 +7799,10 @@
             "https://access.redhat.com/errata/RHSA-2026:5913",
             "https://access.redhat.com/security/cve/CVE-2025-69720",
             "https://bugzilla.redhat.com/2449037",
+            "https://bugzilla.redhat.com/show_bug.cgi?id=2449037",
+            "https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2025-69720",
             "https://errata.almalinux.org/10/ALSA-2026-5913.html",
+            "https://errata.rockylinux.org/RLSA-2026:5913",
             "https://github.com/Cao-Wuhui/CVE-2025-69720",
             "https://invisible-island.net/archives/ncurses/6.5/",
             "https://invisible-island.net/ncurses/",
@@ -7845,6 +7849,8 @@
             "CWE-476"
           ],
           "VendorSeverity": {
+            "amazon": 3,
+            "azure": 2,
             "photon": 3,
             "redhat": 2,
             "ubuntu": 1
@@ -7901,6 +7907,7 @@
           ],
           "VendorSeverity": {
             "azure": 2,
+            "photon": 3,
             "redhat": 2,
             "ubuntu": 2
           },
@@ -7929,7 +7936,7 @@
             "https://www.cve.org/CVERecord?id=CVE-2026-29111"
           ],
           "PublishedDate": "2026-03-23T22:16:26.267Z",
-          "LastModifiedDate": "2026-03-24T15:53:48.067Z"
+          "LastModifiedDate": "2026-04-15T16:44:38.387Z"
         },
         {
           "VulnerabilityID": "CVE-2025-69720",
@@ -7966,7 +7973,8 @@
             "cbl-mariner": 4,
             "nvd": 3,
             "oracle-oval": 2,
-            "redhat": 2
+            "redhat": 2,
+            "rocky": 2
           },
           "CVSS": {
             "nvd": {
@@ -7982,7 +7990,10 @@
             "https://access.redhat.com/errata/RHSA-2026:5913",
             "https://access.redhat.com/security/cve/CVE-2025-69720",
             "https://bugzilla.redhat.com/2449037",
+            "https://bugzilla.redhat.com/show_bug.cgi?id=2449037",
+            "https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2025-69720",
             "https://errata.almalinux.org/10/ALSA-2026-5913.html",
+            "https://errata.rockylinux.org/RLSA-2026:5913",
             "https://github.com/Cao-Wuhui/CVE-2025-69720",
             "https://invisible-island.net/archives/ncurses/6.5/",
             "https://invisible-island.net/ncurses/",
@@ -8026,6 +8037,7 @@
           ],
           "VendorSeverity": {
             "azure": 2,
+            "photon": 3,
             "redhat": 2,
             "ubuntu": 2
           },
@@ -8054,7 +8066,7 @@
             "https://www.cve.org/CVERecord?id=CVE-2026-29111"
           ],
           "PublishedDate": "2026-03-23T22:16:26.267Z",
-          "LastModifiedDate": "2026-03-24T15:53:48.067Z"
+          "LastModifiedDate": "2026-04-15T16:44:38.387Z"
         },
         {
           "VulnerabilityID": "CVE-2025-69720",
@@ -8091,7 +8103,8 @@
             "cbl-mariner": 4,
             "nvd": 3,
             "oracle-oval": 2,
-            "redhat": 2
+            "redhat": 2,
+            "rocky": 2
           },
           "CVSS": {
             "nvd": {
@@ -8107,7 +8120,10 @@
             "https://access.redhat.com/errata/RHSA-2026:5913",
             "https://access.redhat.com/security/cve/CVE-2025-69720",
             "https://bugzilla.redhat.com/2449037",
+            "https://bugzilla.redhat.com/show_bug.cgi?id=2449037",
+            "https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2025-69720",
             "https://errata.almalinux.org/10/ALSA-2026-5913.html",
+            "https://errata.rockylinux.org/RLSA-2026:5913",
             "https://github.com/Cao-Wuhui/CVE-2025-69720",
             "https://invisible-island.net/archives/ncurses/6.5/",
             "https://invisible-island.net/ncurses/",
@@ -8157,7 +8173,8 @@
             "cbl-mariner": 4,
             "nvd": 3,
             "oracle-oval": 2,
-            "redhat": 2
+            "redhat": 2,
+            "rocky": 2
           },
           "CVSS": {
             "nvd": {
@@ -8173,7 +8190,10 @@
             "https://access.redhat.com/errata/RHSA-2026:5913",
             "https://access.redhat.com/security/cve/CVE-2025-69720",
             "https://bugzilla.redhat.com/2449037",
+            "https://bugzilla.redhat.com/show_bug.cgi?id=2449037",
+            "https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2025-69720",
             "https://errata.almalinux.org/10/ALSA-2026-5913.html",
+            "https://errata.rockylinux.org/RLSA-2026:5913",
             "https://github.com/Cao-Wuhui/CVE-2025-69720",
             "https://invisible-island.net/archives/ncurses/6.5/",
             "https://invisible-island.net/ncurses/",
@@ -8220,6 +8240,8 @@
             "CWE-476"
           ],
           "VendorSeverity": {
+            "amazon": 3,
+            "azure": 2,
             "photon": 3,
             "redhat": 2,
             "ubuntu": 1
@@ -8279,6 +8301,8 @@
             "CWE-476"
           ],
           "VendorSeverity": {
+            "amazon": 3,
+            "azure": 2,
             "photon": 3,
             "redhat": 2,
             "ubuntu": 1

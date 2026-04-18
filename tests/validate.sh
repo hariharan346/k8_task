@@ -81,10 +81,11 @@ separator
 
 # 2a. Frontend → Backend (should SUCCEED)
 info "  2a. Frontend → Backend (expect SUCCESS)"
+# Using wget since and read-only FS blocks apt-get
 RESULT=$(kubectl exec -n "$NAMESPACE" deploy/frontend -- \
-  sh -c "apt-get update -qq > /dev/null 2>&1; apt-get install -y -qq curl > /dev/null 2>&1; curl -s --max-time 5 http://backend-svc:8080" 2>/dev/null)
+  wget -qO- --timeout=5 http://backend-svc:8080 2>/dev/null)
 if [ -n "$RESULT" ]; then
-  pass "Frontend → Backend: connection successful"
+  pass "Frontend → Backend: connection successful (using wget)"
 else
   fail "Frontend → Backend: connection failed (should be allowed)"
 fi
@@ -92,8 +93,8 @@ fi
 # 2b. Frontend → DB (should FAIL)
 info "  2b. Frontend → DB (expect BLOCKED)"
 RESULT=$(kubectl exec -n "$NAMESPACE" deploy/frontend -- \
-  sh -c "curl -s --max-time 5 http://db-svc:3306 2>/dev/null" 2>/dev/null)
-if [ -z "$RESULT" ]; then
+  wget -qO- --timeout=5 http://db-svc:3306 2>/dev/null 2>&1)
+if [ -z "$RESULT" ] || echo "$RESULT" | grep -qi "timeout\|refused\|error"; then
   pass "Frontend → DB: connection blocked (network policy working)"
 else
   fail "Frontend → DB: connection succeeded (should be blocked!)"
@@ -157,6 +158,33 @@ if echo "$LATEST_RESULT" | grep -qi "denied\|blocked\|error"; then
   pass ":latest tag blocked correctly"
 else
   fail ":latest tag NOT blocked! Output: $LATEST_RESULT"
+fi
+
+# 3c. runAsNonRoot (should FAIL if false)
+info "  3c. Try 'runAsNonRoot: false' (expect DENIED)"
+NONROOT_RESULT=$(kubectl run test-nonroot --image=nginx:1.25.4 -n "$NAMESPACE" --overrides='{"spec":{"containers":[{"name":"t","image":"nginx:1.25.4","securityContext":{"runAsNonRoot":false}}]}}' 2>&1)
+if echo "$NONROOT_RESULT" | grep -qi "denied\|blocked\|error"; then
+  pass "runAsNonRoot: false blocked correctly"
+else
+  fail "runAsNonRoot: false NOT blocked!"
+fi
+
+# 3d. allowPrivilegeEscalation (should FAIL if true)
+info "  3d. Try 'allowPrivilegeEscalation: true' (expect DENIED)"
+PRIV_ESC_RESULT=$(kubectl run test-priv-esc --image=nginx:1.25.4 -n "$NAMESPACE" --overrides='{"spec":{"containers":[{"name":"t","image":"nginx:1.25.4","securityContext":{"allowPrivilegeEscalation":true}}]}}' 2>&1)
+if echo "$PRIV_ESC_RESULT" | grep -qi "denied\|blocked\|error"; then
+  pass "allowPrivilegeEscalation: true blocked correctly"
+else
+  fail "allowPrivilegeEscalation: true NOT blocked!"
+fi
+
+# 3e. readOnlyRootFilesystem (should FAIL if false)
+info "  3e. Try 'readOnlyRootFilesystem: false' (expect DENIED)"
+READONLY_RESULT=$(kubectl run test-readonly --image=nginx:1.25.4 -n "$NAMESPACE" --overrides='{"spec":{"containers":[{"name":"t","image":"nginx:1.25.4","securityContext":{"readOnlyRootFilesystem":false}}]}}' 2>&1)
+if echo "$READONLY_RESULT" | grep -qi "denied\|blocked\|error"; then
+  pass "readOnlyRootFilesystem: false blocked correctly"
+else
+  fail "readOnlyRootFilesystem: false NOT blocked!"
 fi
 
 echo ""

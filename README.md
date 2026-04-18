@@ -14,7 +14,11 @@ I didn't want to do everything manually every time, so I wrote a bootstrap scrip
 1. **Cluster Creation:** I used `k3d` to spin up a local cluster with 1 master and 3 worker nodes.
 2. **Labeling:** I specifically labeled one node as `pool=reserved` and the others as `pool=spot`. I also added "tier" labels so pods know where they are allowed to go.
 3. **App Deployment:** I deployed the tiers with PodDisruptionBudgets (PDBs) so we don't accidentally kill too many pods at once during maintenance.
-4. **Hardening:** I installed Kyverno to block things like using the `:latest` image tag or running as a privileged container. I also added Network Policies to block all traffic except what's actually needed (e.g., Frontend talking to Backend).
+4. **Hardening:** I installed Kyverno to block things like using the `:latest` image tag or running as a privileged container. I also implemented a **Restricted Security Profile** across all tiers:
+    - **`runAsNonRoot: true`**: Pods are forbidden from running as root.
+    - **`readOnlyRootFilesystem: true`**: The application disk is immutable to prevent malware persistence.
+    - **`allowPrivilegeEscalation: false`**: Processes cannot gain more rights than they started with.
+    - **Network Policies**: I added policies to block all traffic except what's actually needed (e.g., Frontend talking to Backend).
 
 ### 📄 Important configs / scripts I created
 - **`cluster-setup.sh`**: This is the main one. It sets up the cluster, labels everything, and waits for every single pod to be "Green" before finishing. I spent a lot of time on the "wait" functions to make it reliable.
