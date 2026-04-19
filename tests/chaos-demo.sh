@@ -322,7 +322,7 @@ show_distribution "BEFORE — 20 Replicas"
 
 section_header "EXECUTING"
 action "Deleting 1 random pod manually..."
-POD_TO_DELETE=$($KUBECTL_CMD get pods -n "$NAMESPACE" -l "$APP_LABEL" -o name | head -n 1)
+POD_TO_DELETE=$($KUBECTL_CMD get pods -n "$NAMESPACE" -l "$APP_LABEL" -o name | shuf -n 1)
 info "Deleting: $POD_TO_DELETE"
 $KUBECTL_CMD delete "$POD_TO_DELETE" -n "$NAMESPACE" --now
 wait_for_pods 20
@@ -348,7 +348,7 @@ show_distribution "BEFORE — 20 Replicas"
 
 section_header "EXECUTING"
 action "Deleting 5 pods simultaneously..."
-PODS_TO_DELETE=$($KUBECTL_CMD get pods -n "$NAMESPACE" -l "$APP_LABEL" -o name | head -n 5)
+PODS_TO_DELETE=$($KUBECTL_CMD get pods -n "$NAMESPACE" -l "$APP_LABEL" -o name | shuf -n 5)
 info "Deleting: $(echo $PODS_TO_DELETE | tr '\n' ' ')"
 $KUBECTL_CMD delete $PODS_TO_DELETE -n "$NAMESPACE" --now
 wait_for_pods 20
@@ -607,7 +607,7 @@ show_distribution "BEFORE — All Pods on Spot"
 
 section_header "EXECUTING"
 action "Restoring 'pool=reserved' to the first agent node..."
-FIRST_AGENT=$($KUBECTL_CMD get nodes --no-headers -o name | grep agent | head -n 1)
+FIRST_AGENT=$($KUBECTL_CMD get nodes --no-headers -o name | grep agent | awk 'NR==1')
 $KUBECTL_CMD label "$FIRST_AGENT" pool=reserved --overwrite
 info "Labeled $FIRST_AGENT → pool=reserved"
 
