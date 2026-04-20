@@ -33,16 +33,17 @@ spec:
                     values:
                       - spot
                       - reserved
-          # Soft preference: Target 70% spot / 30% reserved distribution
+          # Soft preference: Target 60% spot / 40% reserved distribution
+          # Calibrated to narrow the scoring gap for better Reserved pool visibility
           preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 70
+            - weight: 60
               preference:
                 matchExpressions:
                   - key: pool
                     operator: In
                     values:
                       - spot
-            - weight: 30
+            - weight: 40
               preference:
                 matchExpressions:
                   - key: pool
@@ -63,7 +64,7 @@ spec:
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname
-          whenUnsatisfiable: ScheduleAnyway
+          whenUnsatisfiable: DoNotSchedule
           labelSelector:
             matchLabels:
               app: frontend

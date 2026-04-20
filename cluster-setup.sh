@@ -214,20 +214,29 @@ wait_for_api_server
 
 info "Labeling worker nodes..."
 
-# Get agent node names (sorted for deterministic assignment)
+# Get all agent node names
 AGENT_NODES=($(kubectl get nodes --no-headers -o custom-columns=":metadata.name" | grep -i agent | sort))
 
-if [ "${#AGENT_NODES[@]}" -lt 3 ]; then
-  fail "Expected at least 3 agent nodes, found ${#AGENT_NODES[@]}"
+if [ "${#AGENT_NODES[@]}" -eq 0 ]; then
+  fail "No agent nodes found to label."
   exit 1
 fi
 
-kubectl label node "${AGENT_NODES[0]}" pool=reserved tier/frontend=true tier/backend=true tier/db=true --overwrite
-kubectl label node "${AGENT_NODES[1]}" pool=spot     tier/frontend=true tier/backend=true        --overwrite
-kubectl label node "${AGENT_NODES[2]}" pool=spot     tier/frontend=true tier/backend=true        --overwrite
+info "Applying consistent 70/30 node pool distribution (approx 1:2 ratio)..."
+i=0
+for NODE in "${AGENT_NODES[@]}"; do
+  # Assign 1st, 4th, 7th... nodes to Reserved, others to Spot
+  if [ $((i % 3)) -eq 0 ]; then
+    kubectl label node "$NODE" pool=reserved tier/frontend=true tier/backend=true tier/db=true node-role.kubernetes.io/pool=reserved --overwrite
+    info "  $NODE -> 🔵 reserved"
+  else
+    kubectl label node "$NODE" pool=spot tier/frontend=true tier/backend=true node-role.kubernetes.io/pool=spot --overwrite
+    info "  $NODE -> 🟢 spot"
+  fi
+  i=$((i + 1))
+done
 
-ok "Node labels applied:"
-kubectl get nodes --show-labels | grep -E "NAME|agent"
+ok "Consistent node labels applied to all ${#AGENT_NODES[@]} agents."
 
 #---------------------------------------------------------------
 # 4. Wait for Core Components
