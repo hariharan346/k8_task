@@ -57,3 +57,4 @@ k3d cluster delete three-tier
 ```
 I simplified it so there's no leftover trash—just one command and your resources are back.
 # 70-30
+"# k8_task" 
