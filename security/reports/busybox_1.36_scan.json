@@ -3,8 +3,8 @@
   "Trivy": {
     "Version": "0.69.3"
   },
-  "ReportID": "019da020-70b0-7d93-a0a2-754eefc71a7d",
-  "CreatedAt": "2026-04-18T15:56:13.8088897+05:30",
+  "ReportID": "019dae1d-989b-7908-8ec9-862094359305",
+  "CreatedAt": "2026-04-21T09:07:48.4435921+05:30",
   "ArtifactID": "sha256:60236dc376642731def2e6b5a8461aceed4bb9fe51b5c812de43e512d875ffb9",
   "ArtifactName": "busybox:1.36",
   "ArtifactType": "container_image",

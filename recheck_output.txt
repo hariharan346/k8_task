@@ -1,0 +1,109 @@
+Hariharan@HariHaran MINGW64 /e/abluvaup/70-30 (main)
+$   kubectl get pods -n three-tier -l app=frontend -o wide --no-headers | awk '{print $7}' | xargs -I {} kubectl get node {} -o jsonpath='{.metadata.labels.pool}{"\n"}' | sort | uniq -c | awk '{print $2 ": " $1 " pods (" ($1/total)*100 "%)"}' total=$(kubectl get pods -n three-tier -l app=frontend --no-headers | wc -l)
+reserved: 2 pods (33.3333%)
+spot: 4 pods (66.6667%)
+
+Hariharan@HariHaran MINGW64 /e/abluvaup/70-30 (main)
+$ kubectl scale deployment frontend -n three-tier --replicas=7
+deployment.apps/frontend scaled
+
+Hariharan@HariHaran MINGW64 /e/abluvaup/70-30 (main)
+$   kubectl get pods -n three-tier -l app=frontend -o wide --no-headers | awk '{print $7}' | xargs -I {} kubectl get node {} -o jsonpath='{.metadata.labels.pool}{"\n"}' | sort | uniq -c | awk '{print $2 ": " $1 " pods (" ($1/total)*100 "%)"}' total=$(kubectl get pods -n three-tier -l app=frontend --no-headers | wc -l)
+reserved: 2 pods (28.5714%)
+spot: 5 pods (71.4286%)
+
+Hariharan@HariHaran MINGW64 /e/abluvaup/70-30 (main)
+$ kubectl scale deployment frontend -n three-tier --replicas=20
+deployment.apps/frontend scaled
+
+Hariharan@HariHaran MINGW64 /e/abluvaup/70-30 (main)
+$   kubectl get pods -n three-tier -l app=frontend -o wide --no-headers | awk '{print $7}' | xargs -I {} kubectl get node {} -o jsonpath='{.metadata.labels.pool}{"\n"}' | sort | uniq -c | awk '{print $2 ": " $1 " pods (" ($1/total)*100 "%)"}' total=$(kubectl get pods -n three-tier -l app=frontend --no-headers | wc -l)
+reserved: 6 pods (30%)
+spot: 14 pods (70%)
+
+Hariharan@HariHaran MINGW64 /e/abluvaup/70-30 (main)
+$ kubectl scale deployment frontend -n three-tier --replicas=6
+deployment.apps/frontend scaled
+
+$ kubectl scale deployment frontend -n three-tier --replicas=6                                         deployment.apps/frontend scaled
+
+Ha  kubectl get pods -n three-tier -l app=frontend -o wide --no-headers | awk '{print $7}' | xargs -I {} kubectl get node {} -o jsonpath='{.metadata.labels.pool}{"\n"}' | sort | uniq -c | awk '{print $2 ": " $1 " pods (" ($1/total)*100 "%)"}' total=$(kubectl get pods -n three-tier -l app=frontend --no-headers | wc -l)
+reserved: 2 pods (33.3333%)
+spot: 4 pods (66.6667%)
+
+
+
+Hariharan@HariHaran MINGW64 /e/abluvaup/70-30 (main)
+$ # Delete the PDB preventing the eviction
+kubectl delete pdb frontend-pdb -n three-tier
+
+# Re-run the drain command
+kubectl drain k3d-three-tier-agent-1 --ignore-daemonsets --delete-emptydir-data --force
+poddisruptionbudget.policy "frontend-pdb" deleted from three-tier namespace
+node/k3d-three-tier-agent-1 already cordoned
+evicting pod three-tier/frontend-64b74b5987-9vfc9
+pod/frontend-64b74b5987-9vfc9 evicted
+node/k3d-three-tier-agent-1 drained
+
+Hariharan@HariHaran MINGW64 /e/abluvaup/70-30 (main)
+$   kubectl get pods -n three-tier -l app=frontend -o wide --no-headers | awk '{print $7}' | xargs -I {} kubectl get node {} -o jsonpath='{.metadata.labels.pool}{"\n"}' | sort | uniq -c | awk '{print $2 ": " $1 " pods (" ($1/total)*100 "%)"}' total=$(kubectl get pods -n three-tier -l app=frontend --no-headers | wc -l)
+Error from server (NotFound): nodes "<none>" not found
+Error from server (NotFound): nodes "<none>" not found
+reserved: 2 pods (33.3333%)
+spot: 2 pods (33.3333%)
+
+$  kubectl get pods -n three-tier -o wide | grep frontend | awk "{print \$7}" | sort | uniq -c
+      2 <none>
+      2 k3d-three-tier-agent-0
+      2 k3d-three-tier-agent-2
+
+Hariharan@HariHaran MINGW64 /e/abluvaup/70-30 (main)
+$ kubectl uncordon k3d-three-tier-agent-1
+kubectl rollout restart deployment frontend -n three-tier
+node/k3d-three-tier-agent-1 uncordoned
+deployment.apps/frontend restarted
+
+Hariharan@HariHaran MINGW64 /e/abluvaup/70-30 (main)
+$  kubectl get pods -n three-tier -o wide | grep frontend | awk "{print \$7}" | sort | uniq -c               1 k3d-three-tier-agent-0
+      3 k3d-three-tier-agent-1
+      2 k3d-three-tier-agent-2
+
+Hariharan@HariHaran MINGW64 /e/abluvaup/70-30 (main)
+$   kubectl get pods -n three-tier -l app=frontend -o wide --no-headers | awk '{print $7}' | xargs -I {} kubectl get node {} -o jsonpath='{.metadata.labels.pool}{"\n"}' | sort | uniq -c | awk '{print $2 ": " $1 " pods (" ($1/total)*100 "%)"}' total=$(kubectl get pods -n three-tier -l app=frontend --no-headers | wc -l)
+reserved: 1 pods (16.6667%)
+spot: 5 pods (83.3333%)
+
+Hariharan@HariHaran MINGW64 /e/abluvaup/70-30 (main)
+$   kubectl get pods -n three-tier -l app=frontend -o wide --no-headers | awk '{print $7}' | xargs -I {} kubectl get node {} -o jsonpath='{.metadata.labels.pool}{"\n"}' | sort | uniq -c | awk '{print $2 ": " $1 " pods (" ($1/total)*100 "%)"}' total=$(kubectl get pods -n three-tier -l app=frontend --no-headers | wc -l)
+reserved: 2 pods (33.3333%)
+spot: 4 pods (66.6667%)
+
+Hariharan@HariHaran MINGW64 /e/abluvaup/70-30 (main)
+$
+
+
+Hariharan@HariHaran MINGW64 /e/abluvaup/70-30 (main)
+$ k3d node delete k3d-extra-agent-2-0
+k3d node delete k3d-extra-agent-3-0
+
+
+
+Hariharan@HariHaran MINGW64 /e/abluvaup/70-30 (main)
+k3  kubectl get pods -n three-tier -l app=frontend -o wide --no-headers | awk '{print $7}' | xargs -I {} kubectl get node {} -o jsonpath='{.metadata.labels.pool}{"\n"}' | sort | uniq -c | awk '{print $2 ": " $1 " pods (" ($1/total)*100 "%)"}' total=$(kubectl get pods -n three-tier -l app=frontend --no-headers | wc -l)
+
+
+reserved: 7 pods (23.3333%)
+spot: 11 pods (36.6667%)
+
+Hariharan@HariHaran MINGW64 ~ (main)
+$ kubectl rollout restart deployment -n three-tier
+deployment.apps/backend restarted
+deployment.apps/frontend restarted
+
+
+Hariharan@HariHaran MINGW64 /e/abluvaup/70-30 (main)
+$  kubectl get pods -n three-tier -o wide | grep frontend | awk "{print \$7}" | sort | uniq -c               8 k3d-three-tier-agent-0
+      8 k3d-three-tier-agent-1
+      9 k3d-three-tier-agent-2
+
+
